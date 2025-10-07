@@ -9,6 +9,25 @@ export interface FacebookUserProfile {
   name?: string;
 }
 
+// Facebook API types
+interface FacebookQuickReply {
+  content_type: "text";
+  title: string;
+  payload: string;
+}
+
+interface FacebookMessageData {
+  recipient: { id: string };
+  message: {
+    text?: string;
+    attachment?: {
+      type: string;
+      payload: { url: string };
+    };
+    quick_replies?: FacebookQuickReply[];
+  };
+}
+
 export const getUserProfile = action({
   args: {
     userId: v.string(), // PSID (Page-Scoped User ID)
@@ -49,7 +68,7 @@ export const sendFollowupResponse = action({
     }
 
     try {
-      const quickReplies = buildFollowupQuickReplies(args.remainingQuestions, args.questionLimit);
+      const quickReplies = buildFollowupQuickReplies(args.remainingQuestions);
 
       const messageData = {
         recipient: { id: args.messengerId },
@@ -92,7 +111,7 @@ export const sendFollowupPrompt = action({
             },
           ],
         },
-      };
+      } as FacebookMessageData;
 
       const result = await sendMessageToFacebook(messageData, accessToken);
       return result;
@@ -133,8 +152,8 @@ export const sendSessionEnded = action({
 });
 
 // Helper functions
-function buildFollowupQuickReplies(remainingQuestions: number, questionLimit: number): any[] {
-  const quickReplies = [];
+function buildFollowupQuickReplies(remainingQuestions: number): FacebookQuickReply[] {
+  const quickReplies: FacebookQuickReply[] = [];
 
   if (remainingQuestions > 0) {
     quickReplies.push({
@@ -160,7 +179,7 @@ function buildFollowupQuickReplies(remainingQuestions: number, questionLimit: nu
   return quickReplies;
 }
 
-async function sendMessageToFacebook(messageData: any, accessToken: string): Promise<boolean> {
+async function sendMessageToFacebook(messageData: FacebookMessageData, accessToken: string): Promise<boolean> {
   try {
     const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
 

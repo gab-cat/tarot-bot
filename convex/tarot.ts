@@ -1,8 +1,9 @@
 import cardsData from "./tarot-cards.json" assert { type: "json" };
 import { GoogleGenAI } from "@google/genai";
-import { TAROT_SYSTEM_PROMPT, CARD_POSITIONS, formatCardInfo, getFallbackInterpretation } from "./constants";
+import { TAROT_SYSTEM_PROMPT, formatCardInfo, getFallbackInterpretation } from "./constants";
 import { api } from "./_generated/api";
 import { ActionCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
 
 export type TarotCardData = {
   type: string;
@@ -33,6 +34,17 @@ export type StoredCard = {
   meaning: string;
   position: string;
   reversed: boolean;
+  description: string;
+  cardType: string;
+};
+
+export type ConversationEntry = {
+  type: "initial_reading" | "followup_question" | "followup_response" | "session_end";
+  timestamp: number;
+  content: string;
+  questionNumber?: number;
+  responseTime?: number;
+  isValidQuestion?: boolean;
 };
 
 export async function drawThreeRandomCards(prompt: string, userName?: string, userBirthdate?: string): Promise<{ cards: DrawnCard[]; interpretation: string }> {
@@ -87,7 +99,7 @@ async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[], use
         apiKey: geminiApiKey,
     });
 
-    const cardInfo = cards.map((card, index) => formatCardInfo(card, index)).join("\n\n");
+    const cardInfo = cards.map((card) => formatCardInfo(card)).join("\n\n");
 
     // Personalize the system prompt with user name, current date, and birthdate if available
     let systemPrompt = TAROT_SYSTEM_PROMPT;
@@ -144,15 +156,14 @@ Please provide a meaningful tarot interpretation connecting these cards${userNam
 export async function generateFollowupResponse(
   ctx: ActionCtx,
   question: string,
-  readingId: any,
-  userName?: string
+  readingId: Id<"readings">
 ): Promise<string> {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
     console.warn("GEMINI_API_KEY not found, using fallback response");
-    // Get reading for fallback response
-    const reading = await ctx.runQuery(api.readings.getById, { readingId });
-    return getFallbackFollowupResponse(question, reading?.cards || []);
+    // Get reading for fallback response (not used in fallback)
+    await ctx.runQuery(api.readings.getById, { readingId });
+    return getFallbackFollowupResponse(question);
   }
 
   try {
@@ -170,7 +181,7 @@ export async function generateFollowupResponse(
     const initialReadingContent = reading.interpretation || "";
     const recentFollowupResponses = (reading.conversationHistory || [])
       .filter((entry) => entry.type === "followup_response")
-      .map((entry: any) => entry.content || "")
+      .map((entry: ConversationEntry) => entry.content || "")
       .filter((content: string) => content.length > 0);
 
     const contextSummary = [initialReadingContent, ...recentFollowupResponses]
@@ -178,7 +189,7 @@ export async function generateFollowupResponse(
       .join("\n\n");
 
     // Create card context summary
-    const cardSummary = reading.cards.map((card: any, index: number) => formatCardInfo(card, index)).join("\n\n");
+    const cardSummary = reading.cards.map((card: StoredCard) => formatCardInfo(card)).join("\n\n");
 
     const systemPrompt = `You are a friendly tarot guide helping someone understand their reading better. Keep your responses simple, warm, and conversational - like chatting with a good friend over coffee. Limit yourself to 1-4 sentences.
 
@@ -210,7 +221,7 @@ Provide a brief, conversational response (1-4 sentences) that addresses this spe
       contents: systemPrompt + "\n\n" + userPrompt,
     });
 
-    const aiResponse = response.text || getFallbackFollowupResponse(question, reading.cards);
+    const aiResponse = response.text || getFallbackFollowupResponse(question);
 
     // Validate response length (rough sentence count check)
     const sentenceCount = (aiResponse.match(/[.!?]+/g) || []).length;
@@ -224,13 +235,13 @@ Provide a brief, conversational response (1-4 sentences) that addresses this spe
 
   } catch (error) {
     console.error("Error generating follow-up response:", error);
-    // Get reading for fallback response
-    const reading = await ctx.runQuery(api.readings.getById, { readingId });
-    return getFallbackFollowupResponse(question, reading?.cards || []);
+    // Get reading for fallback response (not used in fallback)
+    await ctx.runQuery(api.readings.getById, { readingId });
+    return getFallbackFollowupResponse(question);
   }
 }
 
-export async function generateUserDescription(readings: any[], userName?: string): Promise<string> {
+export async function generateUserDescription(readings: Doc<"readings">[], userName?: string): Promise<string> {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
     return "A curious soul seeking guidance through the mystical arts.";
@@ -242,7 +253,7 @@ export async function generateUserDescription(readings: any[], userName?: string
     });
 
     const readingsSummary = readings.map((reading, index) =>
-      `Reading ${index + 1}: Question: "${reading.question || 'General guidance'}"\nCards: ${reading.cards?.map((card: any) => `${card.name}${card.reversed ? ' (Reversed)' : ''}`).join(', ') || 'Unknown'}\nInterpretation: ${reading.interpretation?.substring(0, 200) || 'No interpretation'}...`
+      `Reading ${index + 1}: Question: "${reading.question || 'General guidance'}"\nCards: ${reading.cards?.map((card: StoredCard) => `${card.name}${card.reversed ? ' (Reversed)' : ''}`).join(', ') || 'Unknown'}\nInterpretation: ${reading.interpretation?.substring(0, 200) || 'No interpretation'}...`
     ).join('\n\n');
 
     const systemPrompt = `You are a mystical tarot reader creating a brief, insightful personality description based on someone's recent tarot readings. Write 2-3 sentences that capture their essence, current journey, and spiritual inclinations. Focus on patterns in their questions and card themes. Keep it poetic and encouraging.`;
@@ -270,7 +281,7 @@ function buildFallbackInterpretation(prompt: string, cards: DrawnCard[]): string
   return getFallbackInterpretation(prompt, cards);
 }
 
-function getFallbackFollowupResponse(question: string, cards: StoredCard[]): string {
+function getFallbackFollowupResponse(question: string): string {
   // Simple fallback responses based on question type
   const questionLower = question.toLowerCase();
 
@@ -290,9 +301,5 @@ function getFallbackFollowupResponse(question: string, cards: StoredCard[]): str
   return "The cards are inviting you to sit with this question a bit longer. Sometimes the most profound insights come when we allow the wisdom to unfold naturally.";
 }
 
-function lower(s: string): string {
-  const t = s.trim();
-  return t.length ? t.charAt(0).toLowerCase() + t.slice(1) : t;
-}
 
 

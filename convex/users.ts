@@ -1,6 +1,7 @@
 import { mutation, query, internalMutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { Doc } from "./_generated/dataModel";
 
 export const createOrUpdateUser = mutation({
   args: {
@@ -337,7 +338,7 @@ export const updateFollowupTracking = mutation({
       .first();
 
     if (user) {
-      const updates: any = { lastActiveAt: Date.now() };
+      const updates: Partial<Doc<"users">> = { lastActiveAt: Date.now() };
 
       if (args.lastFollowupAt !== undefined) {
         updates.lastFollowupAt = args.lastFollowupAt;

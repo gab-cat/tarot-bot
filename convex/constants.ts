@@ -56,8 +56,18 @@ export const CARD_POSITIONS = {
   future: { emoji: "⏭️", name: "Future" }
 } as const;
 
+// Card info type for formatting functions
+export interface CardInfo {
+  name: string;
+  meaning: string;
+  position: string;
+  reversed: boolean;
+  description: string;
+  cardType: string;
+}
+
 // Pure functions for text formatting
-export function formatCardInfo(card: any, index: number): string {
+export function formatCardInfo(card: CardInfo): string {
   const position = CARD_POSITIONS[card.position as keyof typeof CARD_POSITIONS];
   if (!position) return "";
 
@@ -67,7 +77,7 @@ export function formatCardInfo(card: any, index: number): string {
 └ Meaning: ${card.meaning}`;
 }
 
-export function formatCardSummary(card: any, index: number): string {
+export function formatCardSummary(card: CardInfo): string {
   const position = CARD_POSITIONS[card.position as keyof typeof CARD_POSITIONS];
   if (!position) return "";
 
@@ -207,7 +217,7 @@ export function getDailyLimitMessage(remainingTime: string, userType?: string): 
   return baseMessage;
 }
 
-export function getFallbackInterpretation(question: string, cards: any[]): string {
+export function getFallbackInterpretation(question: string, cards: CardInfo[]): string {
   const firstCard = cards[0]?.name || "first card";
   const secondCard = cards[1]?.name || "second card";
   const thirdCard = cards[2]?.name || "third card";

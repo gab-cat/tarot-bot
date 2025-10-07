@@ -1,7 +1,60 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
-import { drawThreeRandomCards } from "./tarot";
+import { httpAction, ActionCtx } from "./_generated/server";
+import { drawThreeRandomCards, DrawnCard } from "./tarot";
 import { api, internal } from "./_generated/api";
+import { Doc } from "./_generated/dataModel";
+
+
+// Facebook webhook types
+interface FacebookWebhookMessage {
+  mid: string;
+  text?: string;
+  quick_reply?: {
+    payload: string;
+  };
+  attachments?: Array<{
+    type: string;
+    payload: { url: string };
+  }>;
+  is_echo?: boolean;
+}
+
+interface FacebookWebhookMessaging {
+  sender: { id: string };
+  recipient: { id: string };
+  timestamp: number;
+  message?: FacebookWebhookMessage;
+  postback?: {
+    payload: string;
+  };
+}
+
+interface FacebookWebhookEntry {
+  id: string;
+  messaging?: FacebookWebhookMessaging[];
+  standby?: FacebookWebhookMessaging[];
+}
+
+interface FacebookWebhookBody {
+  object: string;
+  entry: FacebookWebhookEntry[];
+}
+
+interface FacebookMessageData {
+  recipient: { id: string };
+  message: {
+    text?: string;
+    attachment?: {
+      type: string;
+      payload: { url: string };
+    };
+    quick_replies?: Array<{
+      content_type: "text";
+      title: string;
+      payload: string;
+    }>;
+  };
+}
 import {
   MESSAGES,
   QUICK_REPLIES,
@@ -14,50 +67,6 @@ import {
 import { validateBirthdate } from "./users";
 
 const http = httpRouter();
-
-// Serve tarot card images
-http.route({
-  path: "/images/cards/:filename",
-  method: "GET",
-  handler: httpAction(async (_ctx, request) => {
-    const url = new URL(request.url);
-    const filename = url.pathname.split('/').pop();
-
-    if (!filename) {
-      return new Response(HTTP_RESPONSES.badRequest, { status: 400 });
-    }
-
-    // Security: only allow .jpg files and basic filename validation
-    if (!filename.endsWith('.jpg') || !/^[a-zA-Z0-9]+\.jpg$/.test(filename)) {
-      return new Response(ERRORS.invalidFilename, { status: 400 });
-    }
-
-    try {
-      // In Convex, we need to read from the cards folder
-      // The cards folder should be accessible from the convex directory
-      const fs = require('fs');
-      const path = require('path');
-      const imagePath = path.join(__dirname, 'cards', filename);
-
-      if (!fs.existsSync(imagePath)) {
-        return new Response(ERRORS.imageNotFound, { status: 404 });
-      }
-
-      const imageBuffer = fs.readFileSync(imagePath);
-
-      return new Response(imageBuffer, {
-        status: 200,
-        headers: {
-          "Content-Type": "image/jpeg",
-          "Cache-Control": "public, max-age=31536000", // Cache for 1 year
-        },
-      });
-    } catch (error) {
-      console.error("Error serving image:", error);
-      return new Response(HTTP_RESPONSES.internalError, { status: 500 });
-    }
-  }),
-});
 
 // Facebook webhook verification and message handling
 http.route({
@@ -90,7 +99,7 @@ http.route({
   path: "/webhook",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const body = await request.json() as any;
+    const body = await request.json() as FacebookWebhookBody;
 
     // Basic structure per Meta Messenger Webhooks
     if (body.object !== "page" || !Array.isArray(body.entry)) {
@@ -296,12 +305,12 @@ http.route({
             : undefined;
 
           // Perform the reading
-          let cards: any[], interpretation: string;
+          let cards: DrawnCard[], interpretation: string;
           try {
             const result = await drawThreeRandomCards(trimmedText, existingUserName, existingUser?.birthdate);
             cards = result.cards;
             interpretation = result.interpretation;
-          } catch (error) {
+          } catch {
             // Reset session state on error
             await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
             // Handle Gemini API errors by asking user to retry
@@ -347,10 +356,7 @@ http.route({
           });
 
           // Get the updated user info to include name in future readings
-          const user = await ctx.runQuery(api.users.getUserById, { userId });
-          const userName = user && (user.firstName || user.lastName)
-            ? [user.firstName, user.lastName].filter(Boolean).join(" ")
-            : null;
+          await ctx.runQuery(api.users.getUserById, { userId });
 
           // Mark reading as done and end session
           await ctx.runMutation(api.users.markReadingDone, { messengerId: senderId });
@@ -363,7 +369,7 @@ http.route({
           await sendMultipleImageMessage(ctx, senderId, images, accessToken);
 
           // Send card information as a separate text message
-          const cardInfoText = cards.map((card, i) => formatCardSummary(card, i)).join("\n\n");
+          const cardInfoText = cards.map((card) => formatCardSummary(card)).join("\n\n");
           await sendTextMessage(senderId, cardInfoText, accessToken);
 
           // Send a summary message
@@ -421,7 +427,7 @@ http.route({
 });
 
 // Handle follow-up messages during active follow-up sessions
-async function handleFollowupMessage(ctx: any, messengerId: string, messageText: string, accessToken: string, event: any): Promise<void> {
+async function handleFollowupMessage(ctx: ActionCtx, messengerId: string, messageText: string, accessToken: string, event: FacebookWebhookMessaging): Promise<void> {
   try {
     // Get user's active reading session
     const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId });
@@ -436,7 +442,7 @@ async function handleFollowupMessage(ctx: any, messengerId: string, messageText:
       limit: 5
     });
 
-    const activeReading = recentReadings.find((reading: any) =>
+    const activeReading = recentReadings.find((reading: Doc<"readings">) =>
       reading.sessionState === "followup_available" ||
       reading.sessionState === "followup_in_progress"
     );
@@ -471,17 +477,18 @@ async function handleFollowupMessage(ctx: any, messengerId: string, messageText:
   }
 }
 
-async function handleFollowupQuickReply(ctx: any, messengerId: string, payload: string, reading: any, accessToken: string): Promise<void> {
+async function handleFollowupQuickReply(ctx: ActionCtx, messengerId: string, payload: string, reading: Doc<"readings">, accessToken: string): Promise<void> {
   switch (payload) {
-    case "FOLLOWUP_QUESTION":
+    case "FOLLOWUP_QUESTION": {
       // Send prompt for follow-up question
       const success = await ctx.runAction(api.facebookApi.sendFollowupPrompt, { messengerId });
       if (!success) {
         await sendTextMessage(messengerId, "❌ Failed to send follow-up prompt. Please try again.", accessToken);
       }
       break;
+    }
 
-    case "END_READING_SESSION":
+    case "END_READING_SESSION": {
       // End the follow-up session
       const result = await ctx.runAction(api.followups.endFollowupSession, {
         readingId: reading._id,
@@ -492,20 +499,22 @@ async function handleFollowupQuickReply(ctx: any, messengerId: string, payload: 
         { title: "🎴 Start Reading", payload: "Start" }
       ]);
       break;
+    }
 
-    case "UPGRADE_PROMPT":
+    case "UPGRADE_PROMPT": {
       // Show upgrade prompt (simplified for now)
       await sendTextMessage(messengerId, "⭐ *Ready to unlock more mystical insights?*\n\nUpgrade to access unlimited follow-up questions and deeper guidance! 🔮", accessToken);
       break;
+    }
 
     default:
       console.warn(`Unknown follow-up quick reply payload: ${payload}`);
   }
 }
 
-async function handleFollowupPostback(ctx: any, messengerId: string, payload: string, reading: any, accessToken: string): Promise<void> {
+async function handleFollowupPostback(ctx: ActionCtx, messengerId: string, payload: string, reading: Doc<"readings">, accessToken: string): Promise<void> {
   switch (payload) {
-    case "END_READING_SESSION":
+    case "END_READING_SESSION": {
       // End the follow-up session
       const result = await ctx.runAction(api.followups.endFollowupSession, {
         readingId: reading._id,
@@ -516,13 +525,14 @@ async function handleFollowupPostback(ctx: any, messengerId: string, payload: st
         { title: "🎴 Start Reading", payload: "Start" }
       ]);
       break;
+    }
 
     default:
       console.warn(`Unknown follow-up postback payload: ${payload}`);
   }
 }
 
-async function processFollowupQuestion(ctx: any, messengerId: string, question: string, reading: any, accessToken: string): Promise<void> {
+async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, question: string, reading: Doc<"readings">, accessToken: string): Promise<void> {
   try {
     // Process the follow-up question
     const result = await ctx.runAction(api.followups.askFollowupQuestion, {
@@ -547,13 +557,14 @@ async function processFollowupQuestion(ctx: any, messengerId: string, question: 
       await sendTextMessage(messengerId, "❌ Failed to process your question. Please try again.", accessToken);
     }
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error processing follow-up question:", error);
 
     // Handle specific error types
-    if (error.message?.includes("Follow-up question limit exceeded")) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes("Follow-up question limit exceeded")) {
       await sendTextMessage(messengerId, "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!", accessToken);
-    } else if (error.message?.includes("Question appears unrelated")) {
+    } else if (errorMessage.includes("Question appears unrelated")) {
       await sendTextMessage(messengerId, "❌ *I couldn't fully connect that question to your reading* ✨\n\nTry rephrasing or asking about specific cards from your spread.", accessToken);
     } else {
       await sendTextMessage(messengerId, "❌ An error occurred while processing your question. Please try again.", accessToken);
@@ -609,7 +620,7 @@ function isGreeting(text: string): boolean {
 
 async function sendTextMessage(recipientId: string, text: string, accessToken: string, quickReplies?: Array<{title: string, payload: string}>): Promise<void> {
   const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
-  const message: any = { text };
+  const message: FacebookMessageData["message"] = { text };
   if (quickReplies && quickReplies.length > 0) {
     message.quick_replies = quickReplies.map(reply => ({
       content_type: "text",
@@ -636,7 +647,7 @@ async function sendTextMessage(recipientId: string, text: string, accessToken: s
   }
 }
 
-async function sendImageMessage(ctx: any, recipientId: string, imageFilename: string, caption: string, accessToken: string): Promise<void> {
+async function sendImageMessage(ctx: ActionCtx, recipientId: string, imageFilename: string, caption: string, accessToken: string): Promise<void> {
   try {
     // First, upload the image to get an attachment_id using the action
     const attachmentId = await ctx.runAction(api.imageActions.uploadImageAttachment, {
@@ -684,7 +695,7 @@ async function sendImageMessage(ctx: any, recipientId: string, imageFilename: st
   }
 }
 
-async function sendMultipleImageMessage(ctx: any, recipientId: string, images: Array<{filename: string, reversed: boolean}>, accessToken: string): Promise<void> {
+async function sendMultipleImageMessage(ctx: ActionCtx, recipientId: string, images: Array<{filename: string, reversed: boolean}>, accessToken: string): Promise<void> {
   try {
     // Get cached attachment IDs directly from database (much faster!)
     const attachmentIds = await ctx.runQuery(api.tarotCardImages.getAttachmentIdsForCards, {

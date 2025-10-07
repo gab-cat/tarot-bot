@@ -1,7 +1,8 @@
-import { action, mutation, query } from "./_generated/server";
+import { action, query } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { FOLLOWUP_LIMITS, FOLLOWUP_MESSAGES } from "./constants";
+import { FOLLOWUP_LIMITS } from "./constants";
+import { Id } from "./_generated/dataModel";
 
 // Types for follow-up functionality
 export interface ConversationEntry {
@@ -13,6 +14,32 @@ export interface ConversationEntry {
   isValidQuestion?: boolean;
 }
 
+export interface FollowupSessionResult {
+  sessionId: Id<"readings">;
+  maxFollowups: number;
+  followupsUsed: number;
+  remainingQuestions: number;
+  message: string;
+}
+
+export interface FollowupQuestionResult {
+  response: string;
+  questionNumber: number;
+  remainingQuestions: number;
+  responseTime: number;
+  endSessionButton: boolean;
+}
+
+export interface FollowupSessionStatus {
+  hasActiveSession: boolean;
+  remainingQuestions: number;
+  maxQuestions: number;
+}
+
+export interface ConversationHistory {
+  conversationHistory: ConversationEntry[];
+}
+
 // Placeholder functions - will be implemented in Phase 2 and Phase 3
 // These provide the basic module structure
 
@@ -21,7 +48,7 @@ export const startFollowupSession = action({
     readingId: v.id("readings"),
     messengerId: v.string(),
   },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<FollowupSessionResult> => {
     // Get the reading and user
     const reading = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
     if (!reading) {
@@ -32,7 +59,7 @@ export const startFollowupSession = action({
       throw new Error("Unauthorized access to reading");
     }
 
-    const user: any = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: args.messengerId });
+    const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: args.messengerId });
     if (!user) {
       throw new Error("User not found");
     }
@@ -93,9 +120,9 @@ export const askFollowupQuestion = action({
     messengerId: v.string(),
     question: v.string(),
   },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<FollowupQuestionResult> => {
     // Get the reading and user
-    const reading: any = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
+    const reading = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
     if (!reading) {
       throw new Error("Reading not found");
     }
@@ -122,8 +149,7 @@ export const askFollowupQuestion = action({
     const response = await generateFollowupResponse(
       ctx,
       args.question,
-      args.readingId,
-      undefined // userName not needed for follow-ups
+      args.readingId
     );
 
     const responseTime = Date.now() - startTime;
@@ -144,7 +170,7 @@ export const askFollowupQuestion = action({
 
     // Update conversation history and counters
     const updatedHistory = addToConversationHistory(
-      addToConversationHistory(reading.conversationHistory, questionEntry),
+      addToConversationHistory(reading.conversationHistory || [], questionEntry),
       responseEntry
     );
 
@@ -174,7 +200,7 @@ export const endFollowupSession = action({
     readingId: v.id("readings"),
     messengerId: v.string(),
   },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<{ message: string }> => {
     // Get the reading
     const reading = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
     if (!reading) {
@@ -218,7 +244,7 @@ export const getFollowupSessionStatus = query({
   args: {
     messengerId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (): Promise<FollowupSessionStatus> => {
     // TODO: Implement in Phase 2
     // Return current session status
     return {
@@ -233,7 +259,7 @@ export const getConversationHistory = query({
   args: {
     readingId: v.id("readings"),
   },
-  handler: async (ctx, args) => {
+  handler: async (): Promise<ConversationHistory> => {
     // TODO: Implement in Phase 2
     // Return conversation history for a reading
     return { conversationHistory: [] };
@@ -320,7 +346,7 @@ export function countQuestionsInHistory(history: ConversationEntry[]): number {
   return history.filter(entry => entry.type === "followup_question").length;
 }
 
-export function isQuestionValid(question: string, history: ConversationEntry[]): boolean {
+export function isQuestionValid(question: string): boolean {
   // Basic validation - question should be related to reading context
   const minLength = 5;
   const maxLength = 500;

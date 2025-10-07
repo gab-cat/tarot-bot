@@ -3,6 +3,12 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
+
+// Facebook API response types
+interface FacebookUploadResponse {
+  attachment_id: string;
+  [key: string]: unknown;
+}
 import { Jimp } from "jimp";
 import cardsData from "./tarot-cards.json" assert { type: "json" };
 
@@ -74,7 +80,7 @@ export const uploadImageAttachment = action({
       throw new Error(`Failed to upload image: ${res.status} ${errorText}`);
     }
 
-    const responseData = await res.json() as any;
+    const responseData = await res.json() as FacebookUploadResponse;
     console.log(`Upload successful for ${imageFilename}:`, responseData);
 
     if (!responseData.attachment_id) {
@@ -301,7 +307,7 @@ async function uploadImageBuffer(
     throw new Error(`Failed to upload image: ${res.status} ${errorText}`);
   }
 
-  const responseData = await res.json() as any;
+  const responseData = await res.json() as FacebookUploadResponse;
   if (!responseData.attachment_id) {
     throw new Error(`No attachment_id in response: ${JSON.stringify(responseData)}`);
   }
