@@ -9,6 +9,8 @@ export default defineSchema({
     isSubscribed: v.boolean(),
     createdAt: v.number(),
     lastActiveAt: v.number(),
+    lastReadingDate: v.optional(v.number()), // Unix timestamp for last daily reading
+    sessionState: v.optional(v.string()), // "waiting_question", "waiting_reading", null
   }).index("by_messenger_id", ["messengerId"]),
 
   readings: defineTable({

@@ -1,0 +1,472 @@
+{
+  "cards": [
+    {
+      "name_short": "ar00",
+      "name": "The Fool",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar00.htm",
+      "image_alt": "Rider-Waite Tarot - The Fool"
+    },
+    {
+      "name_short": "ar01",
+      "name": "The Magician",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar01.htm",
+      "image_alt": "Rider-Waite Tarot - The Magician"
+    },
+    {
+      "name_short": "ar02",
+      "name": "The High Priestess",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar02.htm",
+      "image_alt": "Rider-Waite Tarot - The High Priestess"
+    },
+    {
+      "name_short": "ar03",
+      "name": "The Empress",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar03.htm",
+      "image_alt": "Rider-Waite Tarot - The Empress"
+    },
+    {
+      "name_short": "ar04",
+      "name": "The Emperor",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar04.htm",
+      "image_alt": "Rider-Waite Tarot - The Emperor"
+    },
+    {
+      "name_short": "ar05",
+      "name": "The Hierophant",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar05.htm",
+      "image_alt": "Rider-Waite Tarot - The Hierophant"
+    },
+    {
+      "name_short": "ar06",
+      "name": "The Lovers",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar06.htm",
+      "image_alt": "Rider-Waite Tarot - The Lovers"
+    },
+    {
+      "name_short": "ar07",
+      "name": "The Chariot",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar07.htm",
+      "image_alt": "Rider-Waite Tarot - The Chariot"
+    },
+    {
+      "name_short": "ar08",
+      "name": "Fortitude",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar08.htm",
+      "image_alt": "Rider-Waite Tarot - Strength"
+    },
+    {
+      "name_short": "ar09",
+      "name": "The Hermit",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar09.htm",
+      "image_alt": "Rider-Waite Tarot - The Hermit"
+    },
+    {
+      "name_short": "ar10",
+      "name": "Wheel Of Fortune",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar10.htm",
+      "image_alt": "Rider-Waite Tarot - Wheel of Fortune"
+    },
+    {
+      "name_short": "ar11",
+      "name": "Justice",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar11.htm",
+      "image_alt": "Rider-Waite Tarot - Justice"
+    },
+    {
+      "name_short": "ar12",
+      "name": "The Hanged Man",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar12.htm",
+      "image_alt": "Rider-Waite Tarot - The Hanged Man"
+    },
+    {
+      "name_short": "ar13",
+      "name": "Death",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar13.htm",
+      "image_alt": "Rider-Waite Tarot - Death"
+    },
+    {
+      "name_short": "ar14",
+      "name": "Temperance",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar14.htm",
+      "image_alt": "Rider-Waite Tarot - Temperance"
+    },
+    {
+      "name_short": "ar15",
+      "name": "The Devil",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar15.htm",
+      "image_alt": "Rider-Waite Tarot - The Devil"
+    },
+    {
+      "name_short": "ar16",
+      "name": "The Tower",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar16.htm",
+      "image_alt": "Rider-Waite Tarot - The Tower"
+    },
+    {
+      "name_short": "ar17",
+      "name": "The Star",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar17.htm",
+      "image_alt": "Rider-Waite Tarot - The Star"
+    },
+    {
+      "name_short": "ar18",
+      "name": "The Moon",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar18.htm",
+      "image_alt": "Rider-Waite Tarot - The Moon"
+    },
+    {
+      "name_short": "ar19",
+      "name": "The Sun",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar19.htm",
+      "image_alt": "Rider-Waite Tarot - The Sun"
+    },
+    {
+      "name_short": "ar20",
+      "name": "The Last Judgment",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar20.htm",
+      "image_alt": "Rider-Waite Tarot - Judgement"
+    },
+    {
+      "name_short": "ar21",
+      "name": "The World",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/ar21.htm",
+      "image_alt": "Rider-Waite Tarot - The World"
+    },
+    {
+      "name_short": "wapa",
+      "name": "Page of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wapa.htm",
+      "image_alt": "Rider-Waite Tarot - Page of Wands"
+    },
+    {
+      "name_short": "wakn",
+      "name": "Knight of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wakn.htm",
+      "image_alt": "Rider-Waite Tarot - Knight of Wands"
+    },
+    {
+      "name_short": "waqu",
+      "name": "Queen of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/waqu.htm",
+      "image_alt": "Rider-Waite Tarot - Queen of Wands"
+    },
+    {
+      "name_short": "waki",
+      "name": "King of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/waki.htm",
+      "image_alt": "Rider-Waite Tarot - King of Wands"
+    },
+    {
+      "name_short": "waac",
+      "name": "Ace of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/waac.htm",
+      "image_alt": "Rider-Waite Tarot - Ace of Wands"
+    },
+    {
+      "name_short": "wa02",
+      "name": "Two of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa02.htm",
+      "image_alt": "Rider-Waite Tarot - Two of Wands"
+    },
+    {
+      "name_short": "wa03",
+      "name": "Three of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa03.htm",
+      "image_alt": "Rider-Waite Tarot - Three of Wands"
+    },
+    {
+      "name_short": "wa04",
+      "name": "Four of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa04.htm",
+      "image_alt": "Rider-Waite Tarot - Four of Wands"
+    },
+    {
+      "name_short": "wa05",
+      "name": "Five of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa05.htm",
+      "image_alt": "Rider-Waite Tarot - Five of Wands"
+    },
+    {
+      "name_short": "wa06",
+      "name": "Six of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa06.htm",
+      "image_alt": "Rider-Waite Tarot - Six of Wands"
+    },
+    {
+      "name_short": "wa07",
+      "name": "Seven of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa07.htm",
+      "image_alt": "Rider-Waite Tarot - Seven of Wands"
+    },
+    {
+      "name_short": "wa08",
+      "name": "Eight of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa08.htm",
+      "image_alt": "Rider-Waite Tarot - Eight of Wands"
+    },
+    {
+      "name_short": "wa09",
+      "name": "Nine of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa09.htm",
+      "image_alt": "Rider-Waite Tarot - Nine of Wands"
+    },
+    {
+      "name_short": "wa10",
+      "name": "Ten of Wands",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/wa10.htm",
+      "image_alt": "Rider-Waite Tarot - Ten of Wands"
+    },
+    {
+      "name_short": "cupa",
+      "name": "Page of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cupa.htm",
+      "image_alt": "Rider-Waite Tarot - Page of Cups"
+    },
+    {
+      "name_short": "cukn",
+      "name": "Knight of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cukn.htm",
+      "image_alt": "Rider-Waite Tarot - Knight of Cups"
+    },
+    {
+      "name_short": "cuqu",
+      "name": "Queen of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cuqu.htm",
+      "image_alt": "Rider-Waite Tarot - Queen of Cups"
+    },
+    {
+      "name_short": "cuki",
+      "name": "King of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cuki.htm",
+      "image_alt": "Rider-Waite Tarot - King of Cups"
+    },
+    {
+      "name_short": "cuac",
+      "name": "Ace of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cuac.htm",
+      "image_alt": "Rider-Waite Tarot - Ace of Cups"
+    },
+    {
+      "name_short": "cu02",
+      "name": "Two of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu02.htm",
+      "image_alt": "Rider-Waite Tarot - Two of Cups"
+    },
+    {
+      "name_short": "cu03",
+      "name": "Three of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu03.htm",
+      "image_alt": "Rider-Waite Tarot - Three of Cups"
+    },
+    {
+      "name_short": "cu04",
+      "name": "Four of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu04.htm",
+      "image_alt": "Rider-Waite Tarot - Four of Cups"
+    },
+    {
+      "name_short": "cu05",
+      "name": "Five of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu05.htm",
+      "image_alt": "Rider-Waite Tarot - Five of Cups"
+    },
+    {
+      "name_short": "cu06",
+      "name": "Six of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu06.htm",
+      "image_alt": "Rider-Waite Tarot - Six of Cups"
+    },
+    {
+      "name_short": "cu07",
+      "name": "Seven of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu07.htm",
+      "image_alt": "Rider-Waite Tarot - Seven of Cups"
+    },
+    {
+      "name_short": "cu08",
+      "name": "Eight of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu08.htm",
+      "image_alt": "Rider-Waite Tarot - Eight of Cups"
+    },
+    {
+      "name_short": "cu09",
+      "name": "Nine of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu09.htm",
+      "image_alt": "Rider-Waite Tarot - Nine of Cups"
+    },
+    {
+      "name_short": "cu10",
+      "name": "Ten of Cups",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/cu10.htm",
+      "image_alt": "Rider-Waite Tarot - Ten of Cups"
+    },
+    {
+      "name_short": "pepa",
+      "name": "Page of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pepa.htm",
+      "image_alt": "Rider-Waite Tarot - Page of Pentacles"
+    },
+    {
+      "name_short": "pekn",
+      "name": "Knight of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pekn.htm",
+      "image_alt": "Rider-Waite Tarot - Knight of Pentacles"
+    },
+    {
+      "name_short": "pequ",
+      "name": "Queen of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pequ.htm",
+      "image_alt": "Rider-Waite Tarot - Queen of Pentacles"
+    },
+    {
+      "name_short": "peki",
+      "name": "King of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/peki.htm",
+      "image_alt": "Rider-Waite Tarot - King of Pentacles"
+    },
+    {
+      "name_short": "peac",
+      "name": "Ace of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/peac.htm",
+      "image_alt": "Rider-Waite Tarot - Ace of Pentacles"
+    },
+    {
+      "name_short": "pe02",
+      "name": "Two of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe02.htm",
+      "image_alt": "Rider-Waite Tarot - Two of Pentacles"
+    },
+    {
+      "name_short": "pe03",
+      "name": "Three of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe03.htm",
+      "image_alt": "Rider-Waite Tarot - Three of Pentacles"
+    },
+    {
+      "name_short": "pe04",
+      "name": "Four of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe04.htm",
+      "image_alt": "Rider-Waite Tarot - Four of Pentacles"
+    },
+    {
+      "name_short": "pe05",
+      "name": "Five of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe05.htm",
+      "image_alt": "Rider-Waite Tarot - Five of Pentacles"
+    },
+    {
+      "name_short": "pe06",
+      "name": "Six of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe06.htm",
+      "image_alt": "Rider-Waite Tarot - Six of Pentacles"
+    },
+    {
+      "name_short": "pe07",
+      "name": "Seven of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe07.htm",
+      "image_alt": "Rider-Waite Tarot - Seven of Pentacles"
+    },
+    {
+      "name_short": "pe08",
+      "name": "Eight of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe08.htm",
+      "image_alt": "Rider-Waite Tarot - Eight of Pentacles"
+    },
+    {
+      "name_short": "pe09",
+      "name": "Nine of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe09.htm",
+      "image_alt": "Rider-Waite Tarot - Nine of Pentacles"
+    },
+    {
+      "name_short": "pe10",
+      "name": "Ten of Pentacles",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/pe10.htm",
+      "image_alt": "Rider-Waite Tarot - Ten of Pentacles"
+    },
+    {
+      "name_short": "swpa",
+      "name": "Page of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/swpa.htm",
+      "image_alt": "Rider-Waite Tarot - Page of Swords"
+    },
+    {
+      "name_short": "swkn",
+      "name": "Knight of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/swkn.htm",
+      "image_alt": "Rider-Waite Tarot - Knight of Swords"
+    },
+    {
+      "name_short": "swqu",
+      "name": "Queen of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/swqu.htm",
+      "image_alt": "Rider-Waite Tarot - Queen of Swords"
+    },
+    {
+      "name_short": "swki",
+      "name": "King of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/swki.htm",
+      "image_alt": "Rider-Waite Tarot - King of Swords"
+    },
+    {
+      "name_short": "swac",
+      "name": "Ace of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/swac.htm",
+      "image_alt": "Rider-Waite Tarot - Ace of Swords"
+    },
+    {
+      "name_short": "sw02",
+      "name": "Two of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw02.htm",
+      "image_alt": "Rider-Waite Tarot - Two of Swords"
+    },
+    {
+      "name_short": "sw03",
+      "name": "Three of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw03.htm",
+      "image_alt": "Rider-Waite Tarot - Three of Swords"
+    },
+    {
+      "name_short": "sw04",
+      "name": "Four of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw04.htm",
+      "image_alt": "Rider-Waite Tarot - Four of Swords"
+    },
+    {
+      "name_short": "sw05",
+      "name": "Five of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw05.htm",
+      "image_alt": "Rider-Waite Tarot - Five of Swords"
+    },
+    {
+      "name_short": "sw06",
+      "name": "Six of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw06.htm",
+      "image_alt": "Rider-Waite Tarot - Six of Swords"
+    },
+    {
+      "name_short": "sw07",
+      "name": "Seven of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw07.htm",
+      "image_alt": "Rider-Waite Tarot - Seven of Swords"
+    },
+    {
+      "name_short": "sw08",
+      "name": "Eight of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw08.htm",
+      "image_alt": "Rider-Waite Tarot - Eight of Swords"
+    },
+    {
+      "name_short": "sw09",
+      "name": "Nine of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw09.htm",
+      "image_alt": "Rider-Waite Tarot - Nine of Swords"
+    },
+    {
+      "name_short": "sw10",
+      "name": "Ten of Swords",
+      "image_url": "https://www.sacred-texts.com/tarot/xr/sw10.htm",
+      "image_alt": "Rider-Waite Tarot - Ten of Swords"
+    }
+  ]
+}

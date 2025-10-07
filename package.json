@@ -10,6 +10,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "convex": "^1.27.4"
+    "@google/genai": "^1.22.0",
+    "convex": "^1.27.4",
+    "jimp": "^1.6.0"
   }
 }

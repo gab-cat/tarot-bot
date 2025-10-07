@@ -14,6 +14,9 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as http from "../http.js";
+import type * as imageActions from "../imageActions.js";
+import type * as readings from "../readings.js";
+import type * as tarot from "../tarot.js";
 import type * as users from "../users.js";
 
 /**
@@ -26,6 +29,9 @@ import type * as users from "../users.js";
  */
 declare const fullApi: ApiFromModules<{
   http: typeof http;
+  imageActions: typeof imageActions;
+  readings: typeof readings;
+  tarot: typeof tarot;
   users: typeof users;
 }>;
 export declare const api: FilterApi<
