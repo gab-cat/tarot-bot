@@ -1,0 +1,209 @@
+openapi: 3.0.3
+info:
+  title: Facebook Messenger Webhook - Follow-Up Questions
+  version: 1.0.0
+  description: Facebook Messenger webhook specifications for follow-up question interactions
+
+servers:
+  - url: https://your-convex-deployment.convex.cloud
+    description: Convex HTTP endpoint
+
+paths:
+  /webhook:
+    post:
+      summary: Handle Facebook Messenger webhook events for follow-up questions
+      operationId: handleMessengerWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRequest"
+      responses:
+        "200":
+          description: Webhook processed successfully
+        "400":
+          description: Invalid webhook request
+        "403":
+          description: Webhook verification failed
+
+components:
+  schemas:
+    WebhookRequest:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [page]
+        entry:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookEntry"
+
+    WebhookEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Page ID
+        time:
+          type: integer
+          description: Timestamp
+        messaging:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessagingEvent"
+
+    MessagingEvent:
+      type: object
+      properties:
+        sender:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Sender's Messenger ID
+        recipient:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Page ID
+        timestamp:
+          type: integer
+        message:
+          $ref: "#/components/schemas/Message"
+        postback:
+          $ref: "#/components/schemas/Postback"
+
+    Message:
+      type: object
+      properties:
+        mid:
+          type: string
+          description: Message ID
+        text:
+          type: string
+          description: Message text content
+        quick_reply:
+          $ref: "#/components/schemas/QuickReply"
+
+    QuickReply:
+      type: object
+      properties:
+        payload:
+          type: string
+          description: Quick reply payload
+      example:
+        payload: "FOLLOWUP_QUESTION"
+
+    Postback:
+      type: object
+      properties:
+        payload:
+          type: string
+          description: Postback payload
+        title:
+          type: string
+          description: Postback button title
+      example:
+        payload: "END_READING_SESSION"
+        title: "End Reading"
+
+    FollowupResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/TextMessage"
+              - $ref: "#/components/schemas/QuickReplyMessage"
+      example:
+        messages:
+          - text: "The cards suggest you trust your intuition about this career change. The presence of The Fool indicates new beginnings are favorable."
+            quick_replies:
+              - content_type: text
+                title: Ask Another Question
+                payload: FOLLOWUP_QUESTION
+              - content_type: text
+                title: End Reading
+                payload: END_READING_SESSION
+
+    TextMessage:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: Message text (1-4 sentences for follow-up responses)
+
+    QuickReplyMessage:
+      type: object
+      properties:
+        text:
+          type: string
+        quick_replies:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuickReplyOption"
+          maxItems: 2
+          description: Always include "Ask Another Question" and "End Reading" options
+
+    QuickReplyOption:
+      type: object
+      required:
+        - content_type
+        - title
+        - payload
+      properties:
+        content_type:
+          type: string
+          enum: [text]
+        title:
+          type: string
+          maxLength: 20
+        payload:
+          type: string
+          description: Action payload for follow-up handling
+
+  responses:
+    FollowupSuccess:
+      description: Follow-up question processed successfully
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/FollowupResponse"
+
+    FollowupLimitExceeded:
+      description: User has exceeded follow-up question limit
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TextMessage"
+              upgrade_prompt:
+                type: object
+                properties:
+                  text:
+                    type: string
+                    example: "You've used all your free follow-ups! Upgrade to Mystic Guide for 3 follow-ups per reading."
+
+    SessionEnded:
+      description: Follow-up session ended by user
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TextMessage"
+                example:
+                  - text: "Thank you for exploring the cards deeper. May their wisdom guide your path. 🔮✨"

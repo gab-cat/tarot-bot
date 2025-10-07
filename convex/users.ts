@@ -32,6 +32,7 @@ export const createOrUpdateUser = mutation({
         userType: "free",
         createdAt: now,
         lastActiveAt: now,
+        followupSessionsToday: 0,
       });
     }
   },
@@ -157,6 +158,7 @@ export const markReadingDone = mutation({
         lastActiveAt: Date.now(),
         lastReadingDate: Date.now(),
         sessionState: "reading_complete", // Set to reading complete state instead of ending immediately
+        followupSessionsToday: 0,
       });
     } else {
       // Update existing user
@@ -192,6 +194,7 @@ export const startSession = mutation({
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
         sessionState: "waiting_question",
+        followupSessionsToday: 0,
       });
     } else {
       await ctx.db.patch(user._id, {
@@ -232,7 +235,33 @@ export const getSessionState = query({
       .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
       .first();
 
-    return user?.sessionState || null;
+    // First check user's session state
+    const userSessionState = user?.sessionState;
+    
+    // If user has an active session state (not followup-related), return it
+    if (userSessionState && userSessionState !== "reading_complete") {
+      return userSessionState;
+    }
+
+    // Check if there's an active followup session in the most recent reading
+    if (user) {
+      const recentReadings = await ctx.db
+        .query("readings")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .order("desc")
+        .take(1);
+
+      if (recentReadings.length > 0) {
+        const latestReading = recentReadings[0];
+        // If reading has followup state, return it
+        if (latestReading.sessionState === "followup_available" || 
+            latestReading.sessionState === "followup_in_progress") {
+          return latestReading.sessionState;
+        }
+      }
+    }
+
+    return userSessionState || null;
   },
 });
 
@@ -295,6 +324,34 @@ export const updateUserBirthdate = mutation({
   },
 });
 
+export const updateFollowupTracking = mutation({
+  args: {
+    messengerId: v.string(),
+    lastFollowupAt: v.optional(v.number()),
+    followupSessionsToday: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
+      .first();
+
+    if (user) {
+      const updates: any = { lastActiveAt: Date.now() };
+
+      if (args.lastFollowupAt !== undefined) {
+        updates.lastFollowupAt = args.lastFollowupAt;
+      }
+
+      if (args.followupSessionsToday !== undefined) {
+        updates.followupSessionsToday = (user.followupSessionsToday || 0) + 1;
+      }
+
+      await ctx.db.patch(user._id, updates);
+    }
+  },
+});
+
 export const setWaitingBirthdate = mutation({
   args: {
     messengerId: v.string(),
@@ -318,6 +375,7 @@ export const setWaitingBirthdate = mutation({
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
         sessionState: "waiting_birthdate",
+        followupSessionsToday: 0,
       });
     }
   },

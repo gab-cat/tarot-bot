@@ -1,0 +1,263 @@
+openapi: 3.0.3
+info:
+  title: Tarot Bot Follow-Up Questions API
+  version: 1.0.0
+  description: API specification for follow-up question functionality in Tarot Bot
+
+servers:
+  - url: https://your-convex-deployment.convex.cloud
+    description: Convex deployment URL
+
+paths:
+  /action/followups:startSession:
+    post:
+      summary: Start a follow-up session for a completed reading
+      operationId: startFollowupSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - readingId
+                - messengerId
+              properties:
+                readingId:
+                  type: string
+                  description: ID of the completed reading
+                messengerId:
+                  type: string
+                  description: Facebook Messenger user ID
+      responses:
+        "200":
+          description: Follow-up session started successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                  maxFollowups:
+                    type: integer
+                    minimum: 1
+                    maximum: 5
+                  message:
+                    type: string
+        "400":
+          description: Invalid request or no follow-ups available
+        "403":
+          description: User not authorized for follow-ups
+
+  /action/followups:askQuestion:
+    post:
+      summary: Submit a follow-up question
+      operationId: askFollowupQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - readingId
+                - messengerId
+                - question
+              properties:
+                readingId:
+                  type: string
+                  description: ID of the reading session
+                messengerId:
+                  type: string
+                  description: Facebook Messenger user ID
+                question:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: User's follow-up question
+      responses:
+        "200":
+          description: Follow-up response generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                    description: AI-generated response (1-4 sentences)
+                  questionNumber:
+                    type: integer
+                    minimum: 1
+                  remainingQuestions:
+                    type: integer
+                    minimum: 0
+                  endSessionButton:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum: [postback]
+                      title:
+                        type: string
+                      payload:
+                        type: string
+        "400":
+          description: Invalid question or session expired
+        "429":
+          description: Follow-up limit exceeded
+
+  /action/followups:endSession:
+    post:
+      summary: End the follow-up session
+      operationId: endFollowupSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - readingId
+                - messengerId
+              properties:
+                readingId:
+                  type: string
+                  description: ID of the reading session
+                messengerId:
+                  type: string
+                  description: Facebook Messenger user ID
+      responses:
+        "200":
+          description: Session ended successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    description: Closing message for the user
+        "400":
+          description: Invalid session or already ended
+
+  /query/followups:getSessionStatus:
+    get:
+      summary: Get current follow-up session status
+      operationId: getFollowupSessionStatus
+      parameters:
+        - name: messengerId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Facebook Messenger user ID
+      responses:
+        "200":
+          description: Session status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasActiveSession:
+                    type: boolean
+                  readingId:
+                    type: string
+                  followupsUsed:
+                    type: integer
+                  maxFollowups:
+                    type: integer
+                  sessionState:
+                    type: string
+                    enum:
+                      [
+                        followup_available,
+                        followup_in_progress,
+                        completed,
+                        ended,
+                      ]
+        "404":
+          description: No active session found
+
+  /query/followups:getConversationHistory:
+    get:
+      summary: Get conversation history for a reading session
+      operationId: getConversationHistory
+      parameters:
+        - name: readingId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ID of the reading session
+      responses:
+        "200":
+          description: Conversation history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationHistory:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                            [
+                              initial_reading,
+                              followup_question,
+                              followup_response,
+                              session_end,
+                            ]
+                        timestamp:
+                          type: integer
+                        content:
+                          type: string
+                        questionNumber:
+                          type: integer
+        "403":
+          description: User not authorized to view this conversation
+        "404":
+          description: Reading session not found
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+
+    ConversationEntry:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            [initial_reading, followup_question, followup_response, session_end]
+        timestamp:
+          type: integer
+          description: Unix timestamp
+        content:
+          type: string
+        questionNumber:
+          type: integer
+          description: Only present for followup questions
+        responseTime:
+          type: integer
+          description: Only present for responses, in milliseconds
+
+  securitySchemes:
+    convexAuth:
+      type: http
+      scheme: bearer
+      description: Convex authentication token

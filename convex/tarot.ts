@@ -1,6 +1,8 @@
 import cardsData from "./tarot-cards.json" assert { type: "json" };
 import { GoogleGenAI } from "@google/genai";
 import { TAROT_SYSTEM_PROMPT, CARD_POSITIONS, formatCardInfo, getFallbackInterpretation } from "./constants";
+import { api } from "./_generated/api";
+import { ActionCtx } from "./_generated/server";
 
 export type TarotCardData = {
   type: string;
@@ -23,6 +25,14 @@ export type DrawnCard = {
   description: string;
   cardType: string;
   imageUrl: string;
+};
+
+export type StoredCard = {
+  id: string;
+  name: string;
+  meaning: string;
+  position: string;
+  reversed: boolean;
 };
 
 export async function drawThreeRandomCards(prompt: string, userName?: string, userBirthdate?: string): Promise<{ cards: DrawnCard[]; interpretation: string }> {
@@ -131,6 +141,95 @@ Please provide a meaningful tarot interpretation connecting these cards${userNam
   }
 }
 
+export async function generateFollowupResponse(
+  ctx: ActionCtx,
+  question: string,
+  readingId: any,
+  userName?: string
+): Promise<string> {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    console.warn("GEMINI_API_KEY not found, using fallback response");
+    // Get reading for fallback response
+    const reading = await ctx.runQuery(api.readings.getById, { readingId });
+    return getFallbackFollowupResponse(question, reading?.cards || []);
+  }
+
+  try {
+    // Get the reading data from database
+    const reading = await ctx.runQuery(api.readings.getById, { readingId });
+    if (!reading) {
+      throw new Error("Reading not found");
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+    });
+
+    // Build conversation context from history (get the initial reading interpretation)
+    const initialReadingContent = reading.interpretation || "";
+    const recentFollowupResponses = (reading.conversationHistory || [])
+      .filter((entry) => entry.type === "followup_response")
+      .map((entry: any) => entry.content || "")
+      .filter((content: string) => content.length > 0);
+
+    const contextSummary = [initialReadingContent, ...recentFollowupResponses]
+      .filter(content => content.length > 0)
+      .join("\n\n");
+
+    // Create card context summary
+    const cardSummary = reading.cards.map((card: any, index: number) => formatCardInfo(card, index)).join("\n\n");
+
+    const systemPrompt = `You are a friendly tarot guide helping someone understand their reading better. Keep your responses simple, warm, and conversational - like chatting with a good friend over coffee. Limit yourself to 1-4 sentences.
+
+Key guidelines:
+- Keep it to 1-4 sentences maximum
+- Talk like a friend - use "hey", "you know", "I get it", etc.
+- Connect back to their original cards when it makes sense
+- Answer their specific question directly but simply
+- Don't use fancy tarot jargon - explain things in everyday language
+- Give practical, helpful advice they can actually use
+- **CRITICAL: Make responses intensely personal by mentioning specific scenarios and moments from their situation that make them feel seen and understood**
+- **Always weave in references to concrete moments like "that conversation you mentioned" or "the feeling you described" to make your response feel eerily accurate and tailored just for them**
+- If they're asking about something unrelated to the reading, gently bring them back: "That's interesting, but let's stick with what the cards showed us. What part of your reading are you curious about?"
+
+Remember: You're having a casual conversation about their tarot cards, not giving a formal reading. Make each response feel like it was written specifically for their unique situation.`;
+
+    const userPrompt = `**Original Reading Context:**
+${contextSummary}
+
+**Cards from Original Reading:**
+${cardSummary}
+
+**Follow-up Question:** ${question}
+
+Provide a brief, conversational response (1-4 sentences) that addresses this specific question while connecting back to the original reading.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: systemPrompt + "\n\n" + userPrompt,
+    });
+
+    const aiResponse = response.text || getFallbackFollowupResponse(question, reading.cards);
+
+    // Validate response length (rough sentence count check)
+    const sentenceCount = (aiResponse.match(/[.!?]+/g) || []).length;
+    if (sentenceCount > 4) {
+      // Truncate to approximately 4 sentences
+      const sentences = aiResponse.split(/[.!?]+/);
+      return sentences.slice(0, 4).join('. ').trim() + '.';
+    }
+
+    return aiResponse;
+
+  } catch (error) {
+    console.error("Error generating follow-up response:", error);
+    // Get reading for fallback response
+    const reading = await ctx.runQuery(api.readings.getById, { readingId });
+    return getFallbackFollowupResponse(question, reading?.cards || []);
+  }
+}
+
 export async function generateUserDescription(readings: any[], userName?: string): Promise<string> {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
@@ -169,6 +268,26 @@ Create a mystical, insightful description that captures their essence:`;
 
 function buildFallbackInterpretation(prompt: string, cards: DrawnCard[]): string {
   return getFallbackInterpretation(prompt, cards);
+}
+
+function getFallbackFollowupResponse(question: string, cards: StoredCard[]): string {
+  // Simple fallback responses based on question type
+  const questionLower = question.toLowerCase();
+
+  if (questionLower.includes("why") || questionLower.includes("explain")) {
+    return "The cards are showing you that sometimes the deeper meaning reveals itself through patience and reflection. Trust that the guidance is there, even when it feels unclear at first.";
+  }
+
+  if (questionLower.includes("what") || questionLower.includes("how")) {
+    return "The cards suggest focusing on the practical steps you can take today. Start small, stay consistent, and watch how the energy begins to shift around you.";
+  }
+
+  if (questionLower.includes("when") || questionLower.includes("timing")) {
+    return "The cards indicate that timing is about readiness, not rushing. Pay attention to the signs and synchronicities that appear - they'll show you when the moment is right.";
+  }
+
+  // Default fallback
+  return "The cards are inviting you to sit with this question a bit longer. Sometimes the most profound insights come when we allow the wisdom to unfold naturally.";
 }
 
 function lower(s: string): string {

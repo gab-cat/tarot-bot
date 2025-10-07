@@ -118,6 +118,12 @@ http.route({
         // Check session state first - if user is in a session, treat their message as a question
         const sessionState = await ctx.runQuery(api.users.getSessionState, { messengerId: senderId });
 
+        // Handle follow-up session states
+        if (sessionState === "followup_available" || sessionState === "followup_in_progress") {
+          await handleFollowupMessage(ctx, senderId, trimmedText, accessToken, event);
+          continue;
+        }
+
         // Handle cancel command - allow users to terminate sessions
         if (trimmedText.toLowerCase() === "cancel" && sessionState && sessionState !== "reading_complete") {
           await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
@@ -176,7 +182,9 @@ http.route({
         }
 
         // Handle greetings - send personalized welcome with buttons (only when not in session)
-        if (isGreeting(trimmedText) && !sessionState) {
+        const activeSessionStates = ["followup_available", "followup_in_progress", "waiting_question", "reading_in_progress"];
+        const isInActiveSession = sessionState && activeSessionStates.includes(sessionState);
+        if (isGreeting(trimmedText) && !isInActiveSession) {
           const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
           const userName = existingUser && (existingUser.firstName || existingUser.lastName)
             ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
@@ -194,7 +202,7 @@ http.route({
         }
 
         // Handle "About Me" request (only when not in session)
-        if ((trimmedText.toLowerCase().includes("about me") || trimmedText === "About Me") && !sessionState) {
+        if ((trimmedText.toLowerCase().includes("about me") || trimmedText === "About Me") && !isInActiveSession) {
           const profileMessage = await ctx.runAction(api.users.generateUserProfileMessage, {
             messengerId: senderId,
           });
@@ -205,13 +213,15 @@ http.route({
         }
 
         // Handle "Start" flow - begin session (only when not in session)
-        if (trimmedText.toLowerCase().includes("start") && !sessionState) {
+        if (trimmedText.toLowerCase().includes("start") && !isInActiveSession) {
           // Check if user can read today
           const canRead = await ctx.runQuery(api.users.canReadToday, { messengerId: senderId });
 
           if (!canRead) {
             const remainingTime = getRemainingTimeUntilTomorrow();
-            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime), accessToken);
+            // Get user info for upgrade prompts
+            const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, existingUser?.userType), accessToken);
           } else {
             // Get existing user to check birthdate
             const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
@@ -250,7 +260,7 @@ http.route({
         }
 
         // Handle case when user is not in session
-        if (!sessionState) {
+        if (!isInActiveSession && !sessionState) {
           // Not in session - prompt to start
           await sendTextMessage(senderId, MESSAGES.readyForReading, accessToken, [
             QUICK_REPLIES.start
@@ -266,7 +276,9 @@ http.route({
           if (!canRead) {
             await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
             const remainingTime = getRemainingTimeUntilTomorrow();
-            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime), accessToken);
+            // Get user info for upgrade prompts
+            const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, existingUser?.userType), accessToken);
             continue;
           }
 
@@ -327,6 +339,8 @@ http.route({
               meaning: card.meaning,
               position: card.position,
               reversed: card.reversed,
+              description: card.description,
+              cardType: card.cardType,
             })),
             interpretation,
             readingType: "daily",
@@ -363,6 +377,40 @@ http.route({
           const interpretationMessage = `${truncatedInterpretation}${MESSAGES.readingComplete}`;
           await sendTextMessage(senderId, interpretationMessage, accessToken);
 
+          // Start followup session after reading is completed
+          try {
+            const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+            if (user) {
+              const lastReadings = await ctx.runQuery(api.users.getLastReadings, {
+                userId: user._id,
+                limit: 1
+              });
+              if (lastReadings.length > 0) {
+                const latestReading = lastReadings[0];
+
+                // First, mark the reading as completed
+                await ctx.runMutation(internal.readings.updateSessionState, {
+                  readingId: latestReading._id,
+                  sessionState: "completed"
+                });
+
+                // Then start the followup session
+                await ctx.runAction(api.followups.startFollowupSession, {
+                  readingId: latestReading._id,
+                  messengerId: senderId
+                });
+
+                // Send followup prompt
+                const success = await ctx.runAction(api.facebookApi.sendFollowupPrompt, { messengerId: senderId });
+                if (!success) {
+                  console.warn("Failed to send followup prompt after reading completion");
+                }
+              }
+            }
+          } catch (error) {
+            console.error("Error starting followup session after reading:", error);
+          }
+
           continue;
         }
       }
@@ -371,6 +419,147 @@ http.route({
     return new Response(ERRORS.eventReceived, { status: 200 });
   }),
 });
+
+// Handle follow-up messages during active follow-up sessions
+async function handleFollowupMessage(ctx: any, messengerId: string, messageText: string, accessToken: string, event: any): Promise<void> {
+  try {
+    // Get user's active reading session
+    const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId });
+    if (!user) {
+      await sendTextMessage(messengerId, "❌ Session error. Please start a new reading.", accessToken);
+      return;
+    }
+
+    // Find the most recent completed reading that can have follow-ups
+    const recentReadings = await ctx.runQuery(api.users.getLastReadings, {
+      userId: user._id,
+      limit: 5
+    });
+
+    const activeReading = recentReadings.find((reading: any) =>
+      reading.sessionState === "followup_available" ||
+      reading.sessionState === "followup_in_progress"
+    );
+
+    if (!activeReading) {
+      await sendTextMessage(messengerId, "❌ No active follow-up session found. Please complete a reading first.", accessToken);
+      return;
+    }
+
+    // Check if this is a quick reply payload
+    const quickReplyPayload = event?.message?.quick_reply?.payload;
+    if (quickReplyPayload) {
+      await handleFollowupQuickReply(ctx, messengerId, quickReplyPayload, activeReading, accessToken);
+      return;
+    }
+
+    // Check if this is a postback
+    const postbackPayload = event?.postback?.payload;
+    if (postbackPayload) {
+      await handleFollowupPostback(ctx, messengerId, postbackPayload, activeReading, accessToken);
+      return;
+    }
+
+    // Handle text message as follow-up question
+    if (messageText && messageText.length > 0) {
+      await processFollowupQuestion(ctx, messengerId, messageText, activeReading, accessToken);
+    }
+
+  } catch (error) {
+    console.error("Error handling follow-up message:", error);
+    await sendTextMessage(messengerId, "❌ An error occurred. Please try again.", accessToken);
+  }
+}
+
+async function handleFollowupQuickReply(ctx: any, messengerId: string, payload: string, reading: any, accessToken: string): Promise<void> {
+  switch (payload) {
+    case "FOLLOWUP_QUESTION":
+      // Send prompt for follow-up question
+      const success = await ctx.runAction(api.facebookApi.sendFollowupPrompt, { messengerId });
+      if (!success) {
+        await sendTextMessage(messengerId, "❌ Failed to send follow-up prompt. Please try again.", accessToken);
+      }
+      break;
+
+    case "END_READING_SESSION":
+      // End the follow-up session
+      const result = await ctx.runAction(api.followups.endFollowupSession, {
+        readingId: reading._id,
+        messengerId
+      });
+      // Send goodbye message with option to start new reading
+      await sendTextMessage(messengerId, result.message, accessToken, [
+        { title: "🎴 Start Reading", payload: "Start" }
+      ]);
+      break;
+
+    case "UPGRADE_PROMPT":
+      // Show upgrade prompt (simplified for now)
+      await sendTextMessage(messengerId, "⭐ *Ready to unlock more mystical insights?*\n\nUpgrade to access unlimited follow-up questions and deeper guidance! 🔮", accessToken);
+      break;
+
+    default:
+      console.warn(`Unknown follow-up quick reply payload: ${payload}`);
+  }
+}
+
+async function handleFollowupPostback(ctx: any, messengerId: string, payload: string, reading: any, accessToken: string): Promise<void> {
+  switch (payload) {
+    case "END_READING_SESSION":
+      // End the follow-up session
+      const result = await ctx.runAction(api.followups.endFollowupSession, {
+        readingId: reading._id,
+        messengerId
+      });
+      // Send goodbye message with option to start new reading
+      await sendTextMessage(messengerId, result.message, accessToken, [
+        { title: "🎴 Start Reading", payload: "Start" }
+      ]);
+      break;
+
+    default:
+      console.warn(`Unknown follow-up postback payload: ${payload}`);
+  }
+}
+
+async function processFollowupQuestion(ctx: any, messengerId: string, question: string, reading: any, accessToken: string): Promise<void> {
+  try {
+    // Process the follow-up question
+    const result = await ctx.runAction(api.followups.askFollowupQuestion, {
+      readingId: reading._id,
+      messengerId,
+      question
+    });
+
+    if (result.response) {
+      // Send the AI response with appropriate quick replies
+      const success = await ctx.runAction(api.facebookApi.sendFollowupResponse, {
+        messengerId,
+        response: result.response,
+        remainingQuestions: result.remainingQuestions,
+        questionLimit: reading.maxFollowups
+      });
+
+      if (!success) {
+        await sendTextMessage(messengerId, "❌ Failed to send response. Please try again.", accessToken);
+      }
+    } else {
+      await sendTextMessage(messengerId, "❌ Failed to process your question. Please try again.", accessToken);
+    }
+
+  } catch (error: any) {
+    console.error("Error processing follow-up question:", error);
+
+    // Handle specific error types
+    if (error.message?.includes("Follow-up question limit exceeded")) {
+      await sendTextMessage(messengerId, "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!", accessToken);
+    } else if (error.message?.includes("Question appears unrelated")) {
+      await sendTextMessage(messengerId, "❌ *I couldn't fully connect that question to your reading* ✨\n\nTry rephrasing or asking about specific cards from your spread.", accessToken);
+    } else {
+      await sendTextMessage(messengerId, "❌ An error occurred while processing your question. Please try again.", accessToken);
+    }
+  }
+}
 
 export default http;
 
