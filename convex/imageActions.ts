@@ -2,7 +2,9 @@
 
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import { api } from "./_generated/api";
 import { Jimp } from "jimp";
+import cardsData from "./tarot-cards.json" assert { type: "json" };
 
 export const uploadImageAttachment = action({
   args: {
@@ -98,83 +100,211 @@ export const uploadMultipleImageAttachments = action({
     for (const image of images) {
       const { filename, reversed } = image;
 
-      // Fetch the image from the GitHub repository
-      const imageUrl = `https://raw.githubusercontent.com/metabismuth/tarot-json/refs/heads/master/cards/${filename}`;
-      console.log(`Fetching image from: ${imageUrl}`);
+      // Try to get cached attachment ID first
+      const cachedImage = await ctx.runQuery(api.tarotCardImages.getByFilename, { imageFilename: filename });
+      let attachmentId: string;
 
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
-      }
+      if (cachedImage) {
+        // Use cached attachment ID
+        attachmentId = reversed ? cachedImage.reversedAttachmentId : cachedImage.uprightAttachmentId;
+        console.log(`Using cached attachment ID for ${filename} (${reversed ? 'reversed' : 'upright'})`);
 
-      let imageBuffer = Buffer.from(await imageResponse.arrayBuffer()) as Buffer;
+        // Update last used timestamp
+        await ctx.runMutation(api.tarotCardImages.updateLastUsed, { cardId: cachedImage.cardId });
+      } else {
+        // Download, upload, and save to database on the fly
+        console.log(`No cached image found for ${filename}, downloading and caching on the fly`);
 
-      // If reversed, flip the image horizontally using Jimp
-      if (reversed) {
-        console.log(`Reversing image: ${filename}`);
-        const image = await Jimp.read(imageBuffer);
-        image.flip({ horizontal: false, vertical: true }); // Horizontal flip
-        imageBuffer = await image.getBuffer('image/jpeg');
-      }
+        // Fetch the image from the GitHub repository
+        const imageUrl = `https://raw.githubusercontent.com/metabismuth/tarot-json/refs/heads/master/cards/${filename}`;
+        console.log(`Fetching image from: ${imageUrl}`);
 
-      // Upload the image (reversed or not) to Facebook
-      const boundary = `----WebKitFormBoundary${Math.random().toString(36).substring(2)}`;
-
-      const messageJson = JSON.stringify({
-        attachment: {
-          type: 'image',
-          payload: {
-            is_reusable: true
-          }
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
         }
-      });
 
-      const parts = [
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="message"\r\n`,
-        `Content-Type: application/json\r\n\r\n`,
-        `${messageJson}\r\n`,
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="filedata"; filename="${filename}"\r\n`,
-        `Content-Type: image/jpeg\r\n\r\n`
-      ];
+        const originalBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
-      const footer = `\r\n--${boundary}--\r\n`;
+        // Process upright and reversed versions in parallel
+        const [uprightAttachmentId, reversedAttachmentId] = await Promise.all([
+          uploadImageBuffer(originalBuffer, filename, accessToken, false),
+          uploadImageBuffer(originalBuffer, filename, accessToken, true)
+        ]);
 
-      // Combine all parts into a single buffer
-      const buffers = parts.map(part => Buffer.from(part, 'utf8'));
-      buffers.push(Buffer.from(imageBuffer));
-      buffers.push(Buffer.from(footer, 'utf8'));
+        // Extract card ID from filename (remove .jpg extension)
+        const cardId = filename.replace('.jpg', '');
 
-      const multipartData = Buffer.concat(buffers);
+        // Save to database for future use
+        await ctx.runMutation(api.tarotCardImages.createCardImage, {
+          cardId,
+          imageFilename: filename,
+          uprightAttachmentId,
+          reversedAttachmentId,
+          createdAt: Date.now(),
+          lastUsedAt: Date.now(),
+        });
 
-      const url = `https://graph.facebook.com/v19.0/me/message_attachments?access_token=${encodeURIComponent(accessToken)}`;
+        console.log(`Successfully cached ${filename} with upright: ${uprightAttachmentId}, reversed: ${reversedAttachmentId}`);
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': multipartData.length.toString()
-        },
-        body: multipartData,
-      });
-
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "<no body>");
-        console.error(`Upload failed for ${filename}:`, res.status, errorText);
-        throw new Error(`Failed to upload image: ${res.status} ${errorText}`);
+        // Use the appropriate attachment ID for this request
+        attachmentId = reversed ? reversedAttachmentId : uprightAttachmentId;
       }
 
-      const responseData = await res.json() as any;
-      console.log(`Upload successful for ${filename}:`, responseData);
-
-      if (!responseData.attachment_id) {
-        throw new Error(`No attachment_id in response: ${JSON.stringify(responseData)}`);
-      }
-
-      attachmentIds.push(responseData.attachment_id);
+      attachmentIds.push(attachmentId);
     }
 
     return attachmentIds;
   },
 });
+
+// Initialize all tarot card images by downloading, processing, and uploading them
+export const initializeCardImages = action({
+  args: {
+    accessToken: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ processed: number; total: number }> => {
+    const { accessToken } = args;
+    const cards = cardsData.cards;
+    const totalCards = cards.length;
+    let processed = 0;
+
+    console.log(`Starting initialization of ${totalCards} tarot cards...`);
+
+    // Process cards in batches to avoid overwhelming the system
+    const batchSize = 5;
+    for (let i = 0; i < cards.length; i += batchSize) {
+      const batch = cards.slice(i, i + batchSize);
+      console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(cards.length / batchSize)}`);
+
+      // Process all cards in this batch in parallel
+      const batchPromises = batch.map(async (card) => {
+        try {
+          const cardId = card.name_short;
+          const imageFilename = card.img;
+
+          // Check if this card is already initialized
+          const existing = await ctx.runQuery(api.tarotCardImages.getByCardId, { cardId });
+          if (existing) {
+            console.log(`Card ${cardId} already initialized, skipping...`);
+            return;
+          }
+
+          console.log(`Processing card: ${cardId} (${imageFilename})`);
+
+          // Download the original image
+          const imageUrl = `https://raw.githubusercontent.com/metabismuth/tarot-json/refs/heads/master/cards/${imageFilename}`;
+          console.log(`Downloading: ${imageUrl}`);
+
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) {
+            throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
+          }
+
+          const originalBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+          // Process upright and reversed versions in parallel
+          const [uprightAttachmentId, reversedAttachmentId] = await Promise.all([
+            uploadImageBuffer(originalBuffer, imageFilename, accessToken, false),
+            uploadImageBuffer(originalBuffer, imageFilename, accessToken, true)
+          ]);
+
+          // Save to database
+          await ctx.runMutation(api.tarotCardImages.createCardImage, {
+            cardId,
+            imageFilename,
+            uprightAttachmentId,
+            reversedAttachmentId,
+            createdAt: Date.now(),
+            lastUsedAt: Date.now(),
+          });
+
+          console.log(`Successfully processed card: ${cardId}`);
+          processed++;
+
+        } catch (error) {
+          console.error(`Failed to process card ${card.name_short}:`, error);
+          // Continue with other cards even if one fails
+        }
+      });
+
+      // Wait for the current batch to complete before starting the next
+      await Promise.all(batchPromises);
+    }
+
+    console.log(`Initialization complete. Processed ${processed}/${totalCards} cards.`);
+    return { processed, total: totalCards };
+  },
+});
+
+// Helper function to upload an image buffer (with optional reversal) to Facebook
+async function uploadImageBuffer(
+  imageBuffer: Buffer,
+  filename: string,
+  accessToken: string,
+  reverse: boolean = false
+): Promise<string> {
+  let processedBuffer = imageBuffer;
+
+  // Reverse the image if needed
+  if (reverse) {
+    console.log(`Reversing image: ${filename}`);
+    const image = await Jimp.read(imageBuffer);
+    image.flip({ horizontal: true, vertical: true }); // Horizontal flip for reversed cards
+    processedBuffer = await image.getBuffer('image/jpeg');
+  }
+
+  // Upload to Facebook
+  const boundary = `----WebKitFormBoundary${Math.random().toString(36).substring(2)}`;
+
+  const messageJson = JSON.stringify({
+    attachment: {
+      type: 'image',
+      payload: {
+        is_reusable: true
+      }
+    }
+  });
+
+  const parts = [
+    `--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="message"\r\n`,
+    `Content-Type: application/json\r\n\r\n`,
+    `${messageJson}\r\n`,
+    `--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="filedata"; filename="${filename}"\r\n`,
+    `Content-Type: image/jpeg\r\n\r\n`
+  ];
+
+  const footer = `\r\n--${boundary}--\r\n`;
+
+      // Combine all parts into a single buffer
+      const buffers: Buffer[] = parts.map(part => Buffer.from(part, 'utf8'));
+      buffers.push(Buffer.from(processedBuffer));
+      buffers.push(Buffer.from(footer, 'utf8'));
+
+  const multipartData = Buffer.concat(buffers);
+
+  const url = `https://graph.facebook.com/v19.0/me/message_attachments?access_token=${encodeURIComponent(accessToken)}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': multipartData.length.toString()
+    },
+    body: multipartData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "<no body>");
+    throw new Error(`Failed to upload image: ${res.status} ${errorText}`);
+  }
+
+  const responseData = await res.json() as any;
+  if (!responseData.attachment_id) {
+    throw new Error(`No attachment_id in response: ${JSON.stringify(responseData)}`);
+  }
+
+  return responseData.attachment_id;
+}

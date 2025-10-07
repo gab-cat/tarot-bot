@@ -6,11 +6,15 @@ export default defineSchema({
     messengerId: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
+    birthdate: v.optional(v.string()), // Format: "Month DD" (e.g., "Oct 15", "Dec 2")
     isSubscribed: v.boolean(),
+    userType: v.string(), // "free", "mystic", "oracle"
     createdAt: v.number(),
     lastActiveAt: v.number(),
     lastReadingDate: v.optional(v.number()), // Unix timestamp for last daily reading
-    sessionState: v.optional(v.string()), // "waiting_question", "waiting_reading", null
+    sessionState: v.optional(v.string()), // "waiting_question", "reading_in_progress", "reading_complete", "waiting_birthdate", null
+    description: v.optional(v.string()), // AI-generated user description
+    descriptionLastUpdated: v.optional(v.number()), // Unix timestamp when description was last updated
   }).index("by_messenger_id", ["messengerId"]),
 
   readings: defineTable({
@@ -38,4 +42,13 @@ export default defineSchema({
     description: v.string(),
     keywords: v.array(v.string()),
   }).index("by_card_id", ["cardId"]),
+
+  tarotCardImages: defineTable({
+    cardId: v.string(),
+    imageFilename: v.string(),
+    uprightAttachmentId: v.string(),
+    reversedAttachmentId: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.number(),
+  }).index("by_card_id", ["cardId"]).index("by_filename", ["imageFilename"]),
 });

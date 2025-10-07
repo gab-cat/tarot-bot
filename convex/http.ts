@@ -1,7 +1,17 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { drawThreeRandomCards } from "./tarot";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import {
+  MESSAGES,
+  QUICK_REPLIES,
+  ERRORS,
+  HTTP_RESPONSES,
+  GEMINI_ERROR_MESSAGE,
+  getDailyLimitMessage,
+  formatCardSummary
+} from "./constants";
+import { validateBirthdate } from "./users";
 
 const http = httpRouter();
 
@@ -14,12 +24,12 @@ http.route({
     const filename = url.pathname.split('/').pop();
 
     if (!filename) {
-      return new Response("Filename required", { status: 400 });
+      return new Response(HTTP_RESPONSES.badRequest, { status: 400 });
     }
 
     // Security: only allow .jpg files and basic filename validation
     if (!filename.endsWith('.jpg') || !/^[a-zA-Z0-9]+\.jpg$/.test(filename)) {
-      return new Response("Invalid filename", { status: 400 });
+      return new Response(ERRORS.invalidFilename, { status: 400 });
     }
 
     try {
@@ -30,7 +40,7 @@ http.route({
       const imagePath = path.join(__dirname, 'cards', filename);
 
       if (!fs.existsSync(imagePath)) {
-        return new Response("Image not found", { status: 404 });
+        return new Response(ERRORS.imageNotFound, { status: 404 });
       }
 
       const imageBuffer = fs.readFileSync(imagePath);
@@ -44,7 +54,7 @@ http.route({
       });
     } catch (error) {
       console.error("Error serving image:", error);
-      return new Response("Internal server error", { status: 500 });
+      return new Response(HTTP_RESPONSES.internalError, { status: 500 });
     }
   }),
 });
@@ -65,13 +75,13 @@ http.route({
     const verifyToken = process.env.VERIFY_TOKEN || process.env.APP_SECRET;
     if (mode === "subscribe" && token && verifyToken && token === verifyToken) {
       console.log("WEBHOOK_VERIFIED");
-      return new Response(challenge, { 
+      return new Response(challenge, {
         status: 200,
         headers: { "Content-Type": "text/plain" }
       });
     } else {
       console.log("Verification failed - incorrect token or mode");
-      return new Response("Forbidden", { status: 403 });
+      return new Response(HTTP_RESPONSES.forbidden, { status: 403 });
     }
   }),
 });
@@ -84,13 +94,13 @@ http.route({
 
     // Basic structure per Meta Messenger Webhooks
     if (body.object !== "page" || !Array.isArray(body.entry)) {
-      return new Response("Ignored", { status: 200 });
+      return new Response(ERRORS.webhookIgnored, { status: 200 });
     }
 
     const accessToken = process.env.ACCESS_TOKEN;
     if (!accessToken) {
       console.error("ACCESS_TOKEN is not set in environment");
-      return new Response("Missing ACCESS_TOKEN", { status: 500 });
+      return new Response(ERRORS.accessTokenMissing, { status: 500 });
     }
 
     for (const entry of body.entry) {
@@ -105,74 +115,206 @@ http.route({
 
         const trimmedText = messageText.trim();
 
-        // Handle "Start" flow - begin session
-        if (trimmedText.toLowerCase().includes("start")) {
+        // Check session state first - if user is in a session, treat their message as a question
+        const sessionState = await ctx.runQuery(api.users.getSessionState, { messengerId: senderId });
+
+        // Handle cancel command - allow users to terminate sessions
+        if (trimmedText.toLowerCase() === "cancel" && sessionState && sessionState !== "reading_complete") {
+          await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
+          await sendTextMessage(senderId, "✋ *Session cancelled* ✨\n\nYour reading session has been ended. Feel free to start a new one whenever you're ready! 🔮", accessToken, [
+            QUICK_REPLIES.start,
+            QUICK_REPLIES.aboutMe
+          ]);
+          continue;
+        }
+
+        if (sessionState === "reading_complete") {
+          // Reading was recently completed - ask user to wait
+          await sendTextMessage(senderId, MESSAGES.readingTooFresh, accessToken);
+          continue;
+        }
+
+        if (sessionState === "reading_in_progress") {
+          // Reading is already in progress - ignore this message to prevent duplicate processing
+          continue;
+        }
+
+        // Handle birthdate collection state
+        if (sessionState === "waiting_birthdate") {
+          // Validate the birthdate format
+          if (validateBirthdate(trimmedText)) {
+            // Save the birthdate and move to question asking
+            await ctx.runMutation(api.users.updateUserBirthdate, {
+              messengerId: senderId,
+              birthdate: trimmedText.trim()
+            });
+
+            // Start the reading session
+            await ctx.runMutation(api.users.startSession, { messengerId: senderId });
+
+            // Get user name for personalized greeting
+            const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+            const userName = existingUser && (existingUser.firstName || existingUser.lastName)
+              ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
+              : null;
+
+            const personalizedWelcome = userName
+              ? `🎴 *Perfect, ${userName}!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
+              : `🎴 *Perfect!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
+
+            await sendTextMessage(senderId, MESSAGES.birthdateSaved + "\n\n" + personalizedWelcome, accessToken, [
+              QUICK_REPLIES.career,
+              QUICK_REPLIES.love,
+              QUICK_REPLIES.growth,
+              QUICK_REPLIES.guidance
+            ]);
+          } else {
+            // Invalid format, ask again
+            await sendTextMessage(senderId, MESSAGES.invalidBirthdate, accessToken);
+          }
+          continue;
+        }
+
+        // Handle greetings - send personalized welcome with buttons (only when not in session)
+        if (isGreeting(trimmedText) && !sessionState) {
+          const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+          const userName = existingUser && (existingUser.firstName || existingUser.lastName)
+            ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
+            : null;
+
+          const personalizedWelcome = userName
+            ? `🎴 *Welcome back, ${userName}!* ✨\n\nReady for your daily tarot reading? 🔮`
+            : MESSAGES.readyForReading;
+
+          await sendTextMessage(senderId, personalizedWelcome, accessToken, [
+            QUICK_REPLIES.start,
+            QUICK_REPLIES.aboutMe
+          ]);
+          return new Response(ERRORS.eventReceived, { status: 200 });
+        }
+
+        // Handle "About Me" request (only when not in session)
+        if ((trimmedText.toLowerCase().includes("about me") || trimmedText === "About Me") && !sessionState) {
+          const profileMessage = await ctx.runAction(api.users.generateUserProfileMessage, {
+            messengerId: senderId,
+          });
+          await sendTextMessage(senderId, profileMessage, accessToken, [
+            QUICK_REPLIES.start
+          ]);
+          continue;
+        }
+
+        // Handle "Start" flow - begin session (only when not in session)
+        if (trimmedText.toLowerCase().includes("start") && !sessionState) {
           // Check if user can read today
           const canRead = await ctx.runQuery(api.users.canReadToday, { messengerId: senderId });
 
           if (!canRead) {
             const remainingTime = getRemainingTimeUntilTomorrow();
-            await sendTextMessage(senderId, `You've already received your daily reading! ✨\n\nCome back in ${remainingTime} for a new one. 🌟`, accessToken);
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime), accessToken);
           } else {
-            // End any existing session first
-            await ctx.runMutation(api.users.endSession, { messengerId: senderId });
-            // Start new session and prompt for question
-            await ctx.runMutation(api.users.startSession, { messengerId: senderId });
-            await sendTextMessage(senderId, `🎴 *Welcome to your mystical tarot reading!* ✨
+            // Get existing user to check birthdate
+            const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
 
-Ask me anything your heart desires, or simply describe your question or situation. You can also choose from the options below:`, accessToken, [
-              { title: "💼 Career Path", payload: "What's my career path?" },
-              { title: "💝 Love & Relationships", payload: "How can I find true love?" },
-              { title: "🧘 Personal Growth", payload: "What should I focus on today?" },
-              { title: "🎯 General Guidance", payload: "What guidance do the cards have for me?" }
-            ]);
+            // Check if user has birthdate
+            if (!existingUser?.birthdate) {
+              // No birthdate - prompt for it first
+              await ctx.runMutation(api.users.setWaitingBirthdate, { messengerId: senderId });
+              await sendTextMessage(senderId, MESSAGES.promptBirthdate, accessToken);
+            } else {
+              // Has birthdate - proceed with reading
+              // End any existing session first
+              await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
+
+              // Get user name for personalized greeting
+              const userName = existingUser && (existingUser.firstName || existingUser.lastName)
+                ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
+                : null;
+
+              // Start new session and prompt for question
+              await ctx.runMutation(api.users.startSession, { messengerId: senderId });
+
+              const personalizedWelcome = userName
+                ? `🎴 *What question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
+                : `🎴 *Welcome!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
+
+              await sendTextMessage(senderId, personalizedWelcome, accessToken, [
+                QUICK_REPLIES.career,
+                QUICK_REPLIES.love,
+                QUICK_REPLIES.growth,
+                QUICK_REPLIES.guidance
+              ]);
+            }
           }
           continue;
         }
 
-        // Check session state for all other messages
-        const sessionState = await ctx.runQuery(api.users.getSessionState, { messengerId: senderId });
-
+        // Handle case when user is not in session
         if (!sessionState) {
           // Not in session - prompt to start
-          await sendTextMessage(senderId, "Ready for your daily tarot reading? 🔮", accessToken, [
-            { title: "🎴 Start Reading", payload: "Start" }
+          await sendTextMessage(senderId, MESSAGES.readyForReading, accessToken, [
+            QUICK_REPLIES.start
           ]);
           continue;
         }
 
-        // User is in session - this should be their question
+        // User is in waiting_question state - treat their message as a question
         if (trimmedText.length > 0) {
           // Double-check they can read today (in case they try to bypass "start")
           const canRead = await ctx.runQuery(api.users.canReadToday, { messengerId: senderId });
 
           if (!canRead) {
-            await ctx.runMutation(api.users.endSession, { messengerId: senderId });
+            await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
             const remainingTime = getRemainingTimeUntilTomorrow();
-            await sendTextMessage(senderId, `You've already received your daily reading! ✨\n\nCome back in ${remainingTime} for a new one. 🌟`, accessToken);
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime), accessToken);
             continue;
           }
 
+          // Set session to reading in progress to prevent duplicate processing
+          await ctx.runMutation(api.users.setReadingInProgress, { messengerId: senderId });
+
           // Acknowledge the question immediately
-          await sendTextMessage(senderId, "🔮 *Whispering to the cards...* ✨\n\nI'm connecting with the mystical energies and drawing your three sacred cards. This may take a moment... 🌙", accessToken);
+          await sendTextMessage(senderId, MESSAGES.readingInProgress, accessToken);
+
+          // Get user name and birthdate for personalized reading
+          const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+
+          const existingUserName = existingUser && (existingUser.firstName || existingUser.lastName)
+            ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
+            : undefined;
 
           // Perform the reading
           let cards: any[], interpretation: string;
           try {
-            const result = await drawThreeRandomCards(trimmedText);
+            const result = await drawThreeRandomCards(trimmedText, existingUserName, existingUser?.birthdate);
             cards = result.cards;
             interpretation = result.interpretation;
           } catch (error) {
+            // Reset session state on error
+            await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
             // Handle Gemini API errors by asking user to retry
-            await sendTextMessage(senderId, `❌ ${error instanceof Error ? error.message : "Something went wrong. Please try your question again."}`, accessToken, [
+            await sendTextMessage(senderId, `❌ ${GEMINI_ERROR_MESSAGE}`, accessToken, [
               { title: "🔄 Try Again", payload: trimmedText }
             ]);
-            return new Response("ERROR_HANDLED", { status: 200 });
+            return new Response(ERRORS.errorHandled, { status: 200 });
+          }
+
+          // Get or create user with profile information from Facebook
+          let userProfile = null;
+          try {
+            userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
+              userId: senderId,
+              accessToken,
+            });
+          } catch (error) {
+            console.warn("Failed to fetch user profile from Facebook:", error);
           }
 
           // Save reading to database
           const userId = await ctx.runMutation(api.users.createOrUpdateUser, {
             messengerId: senderId,
+            firstName: userProfile?.first_name,
+            lastName: userProfile?.last_name,
           });
 
           await ctx.runMutation(api.readings.createReading, {
@@ -190,6 +332,12 @@ Ask me anything your heart desires, or simply describe your question or situatio
             readingType: "daily",
           });
 
+          // Get the updated user info to include name in future readings
+          const user = await ctx.runQuery(api.users.getUserById, { userId });
+          const userName = user && (user.firstName || user.lastName)
+            ? [user.firstName, user.lastName].filter(Boolean).join(" ")
+            : null;
+
           // Mark reading as done and end session
           await ctx.runMutation(api.users.markReadingDone, { messengerId: senderId });
 
@@ -201,30 +349,18 @@ Ask me anything your heart desires, or simply describe your question or situatio
           await sendMultipleImageMessage(ctx, senderId, images, accessToken);
 
           // Send card information as a separate text message
-          const cardInfoText = cards.map((card, i) => {
-            const positionEmoji = i === 0 ? "⏮️" : i === 1 ? "▶️" : "⏭️";
-            const positionName = i === 0 ? "Past" : i === 1 ? "Present" : "Future";
-            const status = card.reversed ? " (Reversed)" : "";
-            const cardType = card.cardType === "major" ? "Major Arcana" : "Minor Arcana";
-
-            return `${positionEmoji} *${positionName}*: ${card.name}${status}
-└─ *${cardType}*
-└─ ${card.meaning}`;
-          }).join("\n\n");
-
+          const cardInfoText = cards.map((card, i) => formatCardSummary(card, i)).join("\n\n");
           await sendTextMessage(senderId, cardInfoText, accessToken);
 
           // Send a summary message
-          const summaryMessage = `🎴 *Your Cards Are Drawn* ✨\n\n*Whispering with the ancient energies to reveal their story...*`;
-          await sendTextMessage(senderId, summaryMessage, accessToken);
+          await sendTextMessage(senderId, MESSAGES.cardsDrawn, accessToken);
 
           // Send interpretation in separate message (limit to 2000 chars for Facebook Messenger)
-          const closingText = "\n\n💫 Your daily reading is complete! Come back tomorrow for a new one. 🌟";
-          const maxInterpretationLength = 2000 - closingText.length;
+          const maxInterpretationLength = 2000 - MESSAGES.readingComplete.length;
           const truncatedInterpretation = interpretation.length > maxInterpretationLength
             ? interpretation.substring(0, maxInterpretationLength - 3) + "..."
             : interpretation;
-          const interpretationMessage = `${truncatedInterpretation}${closingText}`;
+          const interpretationMessage = `${truncatedInterpretation}${MESSAGES.readingComplete}`;
           await sendTextMessage(senderId, interpretationMessage, accessToken);
 
           continue;
@@ -232,7 +368,7 @@ Ask me anything your heart desires, or simply describe your question or situatio
       }
     }
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return new Response(ERRORS.eventReceived, { status: 200 });
   }),
 });
 
@@ -253,6 +389,33 @@ function getRemainingTimeUntilTomorrow(): string {
   } else {
     return `${diffMinutes}m`;
   }
+}
+
+function isGreeting(text: string): boolean {
+  const greetingWords = [
+    'hi', 'hello', 'hey', 'greetings', 'good morning', 'good afternoon',
+    'good evening', 'sup', 'yo', 'hiya', 'howdy', 'aloha', 'bonjour',
+    'hola', 'ciao', 'namaste', 'salam', 'shalom', 'konnichiwa'
+  ];
+
+  const lowerText = text.toLowerCase().trim();
+
+  // Check for exact matches
+  if (greetingWords.includes(lowerText)) {
+    return true;
+  }
+
+  // Check for greetings with punctuation
+  if (greetingWords.some(word => lowerText.startsWith(word))) {
+    return true;
+  }
+
+  // Check for common greeting patterns
+  if (lowerText.match(/^(hi|hello|hey|sup|yo)\b/)) {
+    return true;
+  }
+
+  return false;
 }
 
 async function sendTextMessage(recipientId: string, text: string, accessToken: string, quickReplies?: Array<{title: string, payload: string}>): Promise<void> {
@@ -334,10 +497,9 @@ async function sendImageMessage(ctx: any, recipientId: string, imageFilename: st
 
 async function sendMultipleImageMessage(ctx: any, recipientId: string, images: Array<{filename: string, reversed: boolean}>, accessToken: string): Promise<void> {
   try {
-    // Upload all images to get attachment_ids using the new action
-    const attachmentIds = await ctx.runAction(api.imageActions.uploadMultipleImageAttachments, {
-      images,
-      accessToken
+    // Get cached attachment IDs directly from database (much faster!)
+    const attachmentIds = await ctx.runQuery(api.tarotCardImages.getAttachmentIdsForCards, {
+      cards: images.map(img => ({ filename: img.filename, reversed: img.reversed }))
     });
 
     // Send all images as attachments in one message
@@ -371,13 +533,54 @@ async function sendMultipleImageMessage(ctx: any, recipientId: string, images: A
       console.error("Failed to send multiple images:", res.status, errorText);
       throw new Error(`Failed to send multiple images: ${res.status} ${errorText}`);
     } else {
-      console.log("Successfully sent multiple images");
+      console.log("Successfully sent multiple images using cached attachment IDs");
     }
   } catch (error) {
     console.error("Error in sendMultipleImageMessage:", error);
-    // Fallback to sending images individually if batch upload fails
-    for (const image of images) {
-      await sendImageMessage(ctx, recipientId, image.filename, "", accessToken);
+    // Fallback to the old action-based approach if cached IDs aren't available
+    try {
+      console.log("Falling back to action-based image upload...");
+      const attachmentIds = await ctx.runAction(api.imageActions.uploadMultipleImageAttachments, {
+        images,
+        accessToken
+      });
+
+      const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+
+      const attachments = attachmentIds.map((attachmentId: string) => ({
+        type: "image",
+        payload: {
+          attachment_id: attachmentId
+        }
+      }));
+
+      const messageData = {
+        recipient: {
+          id: recipientId
+        },
+        messaging_type: "RESPONSE",
+        message: {
+          attachments
+        }
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(messageData),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to send multiple images: ${res.status}`);
+      }
+
+      console.log("Successfully sent multiple images via fallback method");
+    } catch (fallbackError) {
+      console.error("Fallback method also failed:", fallbackError);
+      // Final fallback: send images individually
+      for (const image of images) {
+        await sendImageMessage(ctx, recipientId, image.filename, "", accessToken);
+      }
     }
   }
 }

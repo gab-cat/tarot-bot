@@ -1,5 +1,6 @@
 import cardsData from "./tarot-cards.json" assert { type: "json" };
 import { GoogleGenAI } from "@google/genai";
+import { TAROT_SYSTEM_PROMPT, CARD_POSITIONS, formatCardInfo, getFallbackInterpretation } from "./constants";
 
 export type TarotCardData = {
   type: string;
@@ -24,7 +25,7 @@ export type DrawnCard = {
   imageUrl: string;
 };
 
-export async function drawThreeRandomCards(prompt: string): Promise<{ cards: DrawnCard[]; interpretation: string }> {
+export async function drawThreeRandomCards(prompt: string, userName?: string, userBirthdate?: string): Promise<{ cards: DrawnCard[]; interpretation: string }> {
   const positions: Array<DrawnCard["position"]> = ["past", "present", "future"];
 
   const indices = sampleUniqueIndices(cardsData.cards.length, 3);
@@ -46,7 +47,7 @@ export async function drawThreeRandomCards(prompt: string): Promise<{ cards: Dra
     };
   });
 
-  const interpretation = await buildGeminiInterpretation(prompt, cards);
+  const interpretation = await buildGeminiInterpretation(prompt, cards, userName, userBirthdate);
   return { cards, interpretation };
 }
 
@@ -63,7 +64,7 @@ function sampleUniqueIndices(maxExclusive: number, count: number): number[] {
   return result;
 }
 
-async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[]): Promise<string> {
+async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[], userName?: string, userBirthdate?: string): Promise<string> {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
     console.warn("GEMINI_API_KEY not found, falling back to simple interpretation");
@@ -76,39 +77,46 @@ async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[]): Pr
         apiKey: geminiApiKey,
     });
 
-    const cardInfo = cards.map((card, index) => {
-      const positionEmoji = index === 0 ? "⏮️" : index === 1 ? "▶️" : "⏭️";
-      const positionName = index === 0 ? "Past" : index === 1 ? "Present" : "Future";
+    const cardInfo = cards.map((card, index) => formatCardInfo(card, index)).join("\n\n");
 
-      return `${positionEmoji} ${positionName}: ${card.name}${card.reversed ? " (Reversed)" : ""}
-└ Type: ${card.cardType === "major" ? "Major Arcana" : "Minor Arcana"}
-└ Description: ${card.description.substring(0, 200)}...
-└ Meaning: ${card.meaning}`;
-    }).join("\n\n");
+    // Personalize the system prompt with user name, current date, and birthdate if available
+    let systemPrompt = TAROT_SYSTEM_PROMPT;
 
-    const systemPrompt = `**How I roll:**
-- Chatting like we're grabbing coffee and you're spilling about your week
-- Connecting your past vibes, what's happening now, and what's coming up next
-- Pointing out those "oh wow, that makes sense" moments that hit different
-- Getting specific about real stuff - like that awkward text you sent, the job interview nerves, or why you can't stop thinking about that one person
-- Keeping it relatable - relationship drama, work frustrations, creative blocks, family stuff, or that nagging feeling something's about to change
-- Around 200 words of insights that actually help you navigate real life
-- IMPORTANT: Keep everything under 2000 characters (emojis included)
+    // Replace current date placeholder with today's date
+    const today = new Date();
+    const currentDate = today.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    systemPrompt = systemPrompt.replace('{current_date}', currentDate);
 
-**What you'll get:**
-🎴 *Your Cards*
-🔮 *The Bigger Picture* - how everything ties together
-💡 *Real Talk* - the stuff you need to hear right now
-🌟 *What To Try* - practical next moves that feel doable
+    // Replace birthdate placeholder if available
+    if (userBirthdate) {
+      systemPrompt = systemPrompt.replace('{user_birthdate}', userBirthdate);
+    } else {
+      // If no birthdate, remove the birthdate instruction entirely
+      systemPrompt = systemPrompt.replace(/\n\nUSER BIRTHDATE:.*?\./, '');
+    }
 
-**Make it personal:** Think about specific situations - that crush you can't stop thinking about, the project that's stressing you out, the family tension that's been building, or that gut feeling about a decision you're making. The more specific you are, the more the cards can speak directly to you.`;
+    if (userName) {
+      systemPrompt = systemPrompt.replace(
+        "Picture this - you're curled up with your coffee",
+        `Picture this - ${userName} is curled up with their coffee`
+      );
+      systemPrompt = systemPrompt.replace(
+        "Think of me as that friend who always knows what to say",
+        `Think of me as that friend who always knows what to say to ${userName}`
+      );
+    }
 
-    const userPrompt = `**User's Question**: ${prompt}
+    const userPrompt = `**${userName ? userName + "'s Question" : "User's Question"}**: ${prompt}
 
 **Cards Drawn**:
 ${cardInfo}
 
-Please provide a meaningful tarot interpretation connecting these cards.`;
+Please provide a meaningful tarot interpretation connecting these cards${userName ? ` specifically for ${userName}` : ""}.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -123,27 +131,44 @@ Please provide a meaningful tarot interpretation connecting these cards.`;
   }
 }
 
+export async function generateUserDescription(readings: any[], userName?: string): Promise<string> {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    return "A curious soul seeking guidance through the mystical arts.";
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+    });
+
+    const readingsSummary = readings.map((reading, index) =>
+      `Reading ${index + 1}: Question: "${reading.question || 'General guidance'}"\nCards: ${reading.cards?.map((card: any) => `${card.name}${card.reversed ? ' (Reversed)' : ''}`).join(', ') || 'Unknown'}\nInterpretation: ${reading.interpretation?.substring(0, 200) || 'No interpretation'}...`
+    ).join('\n\n');
+
+    const systemPrompt = `You are a mystical tarot reader creating a brief, insightful personality description based on someone's recent tarot readings. Write 2-3 sentences that capture their essence, current journey, and spiritual inclinations. Focus on patterns in their questions and card themes. Keep it poetic and encouraging.`;
+
+    const userPrompt = `Based on these recent tarot readings${userName ? ` for ${userName}` : ''}, create a brief 2-3 sentence mystical description of this person's personality and current life journey:
+
+${readingsSummary}
+
+Create a mystical, insightful description that captures their essence:`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: systemPrompt + "\n\n" + userPrompt,
+    });
+
+    return response.text || "A curious soul on a mystical journey of self-discovery.";
+
+  } catch (error) {
+    console.error("Error generating user description:", error);
+    return "A curious soul on a mystical journey of self-discovery.";
+  }
+}
+
 function buildFallbackInterpretation(prompt: string, cards: DrawnCard[]): string {
-  const cardSummaries = cards.map((card, index) => {
-    const positionEmoji = index === 0 ? "⏮️" : index === 1 ? "▶️" : "⏭️";
-    const positionName = index === 0 ? "Past" : index === 1 ? "Present" : "Future";
-    const status = card.reversed ? " (Reversed)" : "";
-
-    return `${positionEmoji} **${positionName}**: ${card.name}${status}
-└─ *${card.cardType === "major" ? "Major Arcana" : "Minor Arcana"}*
-└─ ${card.meaning}`;
-  }).join("\n\n");
-
-  return `🎴 **Mystical Reading**
-
-🔮 **The Cards Reveal**: Your question "${prompt}" draws forth a fascinating journey. The ${cards[0]?.name || "first card"} speaks of foundations, while ${cards[1]?.name || "second card"} illuminates your current moment, and ${cards[2]?.name || "third card"} points toward possibilities ahead.
-
-💡 **Whispers of Wisdom**:
-• Trust the timing of your path
-• Your intuition holds powerful answers
-• Small steps lead to meaningful change
-
-🌟 **Your Path Forward**: Embrace curiosity and stay open to synchronicities. The cards are your allies in this beautiful dance of life.`;
+  return getFallbackInterpretation(prompt, cards);
 }
 
 function lower(s: string): string {

@@ -3,6 +3,10 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "init-images": "bun run init-images.ts",
+    "dev": "convex dev"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
