@@ -29,6 +29,16 @@ What you're getting:
 
 Make it count: The more specific you get, the better I can help. Don't just say "love life" - tell me about that person you can't stop thinking about. Skip "work stress" and get into that project that's keeping you up at night. The messier and more real you get, the more the cards can actually speak to what's happening in your world.
 
+**CRITICAL: Make it intensely personal and enticing by mentioning specific scenarios and moments that resonate deeply.** When interpreting the cards, always weave in references to concrete situations like:
+- The exact moment you felt that gut feeling about a decision
+- That specific conversation where everything changed
+- The particular dream you had last night that felt meaningful
+- That recurring thought you can't shake about someone
+- The specific challenge you're facing right now at work/school/home
+- The emotional moment when you realized something needed to change
+
+**Use these specific moments and scenarios to make your interpretation feel like it was written just for them - not generic advice, but insights that feel eerily accurate to their exact situation.**
+
 IMPORTANT: If you know the person's name, use it naturally throughout your reading to make it more personal and engaging. Address them by name when giving advice or insights. Just use it once or twice and do not bold it.
 
 ASTROLOGICAL AWARENESS: Consider relevant astrological events and planetary influences for today's date ({current_date}) when interpreting the cards. If significant events like Venus retrograde, Mercury retrograde, eclipses, or other major astrological transits are happening today, weave this cosmic context naturally into your interpretation where it feels relevant and meaningful. Let your knowledge of astrology inform the reading without forcing it - only mention astrological events if they genuinely enhance the interpretation.
@@ -137,6 +147,33 @@ export const HTTP_RESPONSES = {
 // Gemini API error message
 export const GEMINI_ERROR_MESSAGE = "AI interpretation temporarily unavailable. Please try your question again.";
 
+// Follow-up question limits by subscription tier
+export const FOLLOWUP_LIMITS = {
+  free: 1,
+  mystic: 3,    // pro
+  oracle: 5,    // pro+
+  pro: 3,       // backward compatibility
+  "pro+": 5     // backward compatibility
+} as const;
+
+// Follow-up UI messages
+export const FOLLOWUP_MESSAGES = {
+  sessionAvailable: "💫 *Your reading is ready for deeper exploration* ✨\n\nWould you like to ask a follow-up question to gain more clarity?",
+  questionPrompt: "🔮 *What's on your mind?* ✨\n\nAsk me anything about your reading for deeper insights:",
+  processingQuestion: "🔮 *Consulting the cards again...* ✨\n\nI'm weaving together the mystical energies from your original reading.",
+  remainingQuestions: (remaining: number, max: number) => `📊 *Questions remaining:* ${remaining}/${max}`,
+  limitReached: "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!",
+  sessionEnded: "💫 *Thank you for exploring the cards deeper* ✨\n\nMay their wisdom continue to guide your path. 🔮✨",
+  invalidQuestion: "❌ *I couldn't fully connect that question to your reading* ✨\n\nTry rephrasing or asking about specific cards from your spread.",
+} as const;
+
+// Follow-up quick replies
+export const FOLLOWUP_QUICK_REPLIES = {
+  askQuestion: { title: "💭 Ask Follow-Up", payload: "FOLLOWUP_QUESTION" },
+  endSession: { title: "🏁 End Reading", payload: "END_READING_SESSION" },
+  upgradePrompt: { title: "⭐ Upgrade Now", payload: "UPGRADE_PROMPT" },
+} as const;
+
 // Test console messages
 export const TEST_MESSAGES = {
   testingCaching: "🧪 Testing on-the-fly caching functionality...",
@@ -156,8 +193,18 @@ export const TEST_MESSAGES = {
 } as const;
 
 // Helper functions for dynamic messages
-export function getDailyLimitMessage(remainingTime: string): string {
-  return MESSAGES.dailyLimitReached.replace("{time}", remainingTime);
+export function getDailyLimitMessage(remainingTime: string, userType?: string): string {
+  const baseMessage = MESSAGES.dailyLimitReached.replace("{time}", remainingTime);
+
+  // Add upgrade prompts based on user type
+  if (userType === "free") {
+    return `${baseMessage}\n\n🌟 *Ready for more mystical insights?*\n💎 *Mystic Guide* → 5 daily readings + 3 follow-ups + deeper insights\n👑 *Oracle Master* → Unlimited readings + 5 follow-ups + premium guidance`;
+  } else if (userType === "mystic" || userType === "pro") {
+    return `${baseMessage}\n\n🌟 *Seeking even deeper mystical wisdom?*\n👑 *Upgrade to Oracle Master* → Unlimited readings (vs 5 daily) + 5 follow-ups (vs 3) + exclusive premium features`;
+  }
+
+  // Default message for other user types or unknown
+  return baseMessage;
 }
 
 export function getFallbackInterpretation(question: string, cards: any[]): string {

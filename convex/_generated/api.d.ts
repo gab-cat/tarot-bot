@@ -15,6 +15,7 @@ import type {
 } from "convex/server";
 import type * as constants from "../constants.js";
 import type * as facebookApi from "../facebookApi.js";
+import type * as followups from "../followups.js";
 import type * as http from "../http.js";
 import type * as imageActions from "../imageActions.js";
 import type * as readings from "../readings.js";
@@ -33,6 +34,7 @@ import type * as users from "../users.js";
 declare const fullApi: ApiFromModules<{
   constants: typeof constants;
   facebookApi: typeof facebookApi;
+  followups: typeof followups;
   http: typeof http;
   imageActions: typeof imageActions;
   readings: typeof readings;
