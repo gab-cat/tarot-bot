@@ -33,7 +33,7 @@ export const getUserProfile = action({
     userId: v.string(), // PSID (Page-Scoped User ID)
     accessToken: v.string(),
   },
-  handler: async (ctx, args): Promise<FacebookUserProfile | null> => {
+  handler: async (_, args): Promise<FacebookUserProfile | null> => {
     try {
       const url = `https://graph.facebook.com/v19.0/${args.userId}?fields=id,first_name,last_name,name&access_token=${encodeURIComponent(args.accessToken)}`;
 
@@ -60,7 +60,7 @@ export const sendFollowupResponse = action({
     remainingQuestions: v.number(),
     questionLimit: v.number(),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (_, args): Promise<boolean> => {
     const accessToken = process.env.ACCESS_TOKEN;
     if (!accessToken) {
       console.error("ACCESS_TOKEN not configured");
@@ -91,7 +91,7 @@ export const sendFollowupPrompt = action({
   args: {
     messengerId: v.string(),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (_, args): Promise<boolean> => {
     const accessToken = process.env.ACCESS_TOKEN;
     if (!accessToken) {
       console.error("ACCESS_TOKEN not configured");
@@ -127,7 +127,7 @@ export const sendSessionEnded = action({
     messengerId: v.string(),
     message: v.string(),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (_, args): Promise<boolean> => {
     const accessToken = process.env.ACCESS_TOKEN;
     if (!accessToken) {
       console.error("ACCESS_TOKEN not configured");

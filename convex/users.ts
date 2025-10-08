@@ -1,7 +1,7 @@
 import { mutation, query, internalMutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { Doc } from "./_generated/dataModel";
+import { type Doc } from "./_generated/dataModel";
 
 export const createOrUpdateUser = mutation({
   args: {

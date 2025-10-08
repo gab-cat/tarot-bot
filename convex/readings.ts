@@ -1,5 +1,5 @@
-import { Doc, Id } from "./_generated/dataModel";
-import { mutation, internalMutation, query, QueryCtx } from "./_generated/server";
+import { type Doc, type Id } from "./_generated/dataModel";
+import { mutation, internalMutation, query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 export const createReading = mutation({

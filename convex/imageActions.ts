@@ -17,7 +17,7 @@ export const uploadImageAttachment = action({
     imageFilename: v.string(),
     accessToken: v.string(),
   },
-  handler: async (ctx, args): Promise<string> => {
+  handler: async (_, args): Promise<string> => {
     const { imageFilename, accessToken } = args;
 
     // Fetch the image from the GitHub repository

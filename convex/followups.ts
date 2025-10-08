@@ -1,8 +1,8 @@
-import { action, query, ActionCtx } from "./_generated/server";
+import { action, query, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { FOLLOWUP_LIMITS, QUICK_REPLIES } from "./constants";
-import { Id } from "./_generated/dataModel";
+import { type Id } from "./_generated/dataModel";
 
 // Types for follow-up functionality
 export interface ConversationEntry {

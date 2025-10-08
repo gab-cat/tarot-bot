@@ -1,8 +1,8 @@
 import { httpRouter } from "convex/server";
-import { httpAction, ActionCtx } from "./_generated/server";
-import { drawThreeRandomCards, DrawnCard } from "./tarot";
+import { httpAction, type ActionCtx } from "./_generated/server";
+import { drawThreeRandomCards, type DrawnCard } from "./tarot";
 import { api, internal } from "./_generated/api";
-import { Doc } from "./_generated/dataModel";
+import { type Doc } from "./_generated/dataModel";
 
 
 // Facebook webhook types

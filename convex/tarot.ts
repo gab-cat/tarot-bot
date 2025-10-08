@@ -2,8 +2,8 @@ import cardsData from "./tarot-cards.json" assert { type: "json" };
 import { GoogleGenAI } from "@google/genai";
 import { TAROT_SYSTEM_PROMPT, formatCardInfo, getFallbackInterpretation } from "./constants";
 import { api } from "./_generated/api";
-import { ActionCtx } from "./_generated/server";
-import { Doc, Id } from "./_generated/dataModel";
+import { type ActionCtx } from "./_generated/server";
+import { type Doc, type Id } from "./_generated/dataModel";
 
 export type TarotCardData = {
   type: string;

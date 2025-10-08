@@ -1,6 +1,6 @@
 import { mutation, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { type Doc } from "./_generated/dataModel";
 
 export const createPayment = mutation({
   args: {
