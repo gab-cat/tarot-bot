@@ -834,7 +834,7 @@ http.route({
 
       const accessToken = process.env.ACCESS_TOKEN;
       if (accessToken) {
-        await sendUpgradeLink(messengerId, `Upgrade to ${plan} (₱${amount})`, invoiceUrl, accessToken);
+        await sendUpgradeLink(messengerId, `Upgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)} (₱${amount})`, invoiceUrl, accessToken);
       }
 
       return new Response(JSON.stringify({ success: true, invoiceUrl }), {
