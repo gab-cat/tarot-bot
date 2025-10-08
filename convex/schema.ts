@@ -70,4 +70,17 @@ export default defineSchema({
     createdAt: v.number(),
     lastUsedAt: v.number(),
   }).index("by_card_id", ["cardId"]).index("by_filename", ["imageFilename"]),
+
+  payments: defineTable({
+    externalId: v.string(),
+    invoiceId: v.optional(v.string()),
+    messengerId: v.string(),
+    plan: v.union(v.literal("mystic"), v.literal("oracle")),
+    amount: v.number(),
+    currency: v.string(),
+    status: v.union(v.literal("PENDING"), v.literal("PAID"), v.literal("EXPIRED"), v.literal("FAILED")),
+    invoiceUrl: v.optional(v.string()),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  }).index("by_external_id", ["externalId"]),
 });

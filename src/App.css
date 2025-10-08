@@ -201,7 +201,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-black text-white;
+    @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
     font-family: "Inter", sans-serif;
   }

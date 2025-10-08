@@ -66,6 +66,22 @@ import {
 } from "./constants";
 import { validateBirthdate } from "./users";
 
+interface XenditInvoiceEvent {
+  id: string;
+  external_id: string;
+  status: 'PAID' | 'EXPIRED' | 'FAILED' | 'PENDING' | string; // Allow other statuses
+  amount?: number;
+  paid_amount?: number;
+  paid_at?: string;
+  payer_email?: string;
+  description?: string;
+  currency?: string;
+  user_id?: string;
+  payment_method?: string;
+  bank_code?: string;
+  [key: string]: unknown; // For additional fields
+}
+
 const http = httpRouter();
 
 // Facebook webhook verification and message handling
@@ -125,8 +141,43 @@ http.route({
 
         const trimmedText = messageText ? messageText.trim() : "";
 
-        // Check session state first - if user is in a session, treat their message as a question
+        // Handle upgrade postbacks and quick replies
+        const postbackPayload = event.postback?.payload;
+        const quickReplyPayload = event.message?.quick_reply?.payload;
+        const upgradePayload = postbackPayload || quickReplyPayload;
+
+        if (upgradePayload?.startsWith("UPGRADE_")) {
+          const plan = upgradePayload === "UPGRADE_MYSTIC" ? "mystic" : "oracle";
+          const baseUrl = process.env.APP_BASE_URL || "https://your-project.convex.cloud";
+          const checkoutResponse = await fetch(`${baseUrl}/xendit/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messengerId: senderId, plan }),
+          });
+
+          if (checkoutResponse.ok) {
+            console.log(`Upgrade checkout initiated for ${plan}`);
+            await sendTextMessage(senderId, `🔮 Initiating ${plan} upgrade... Check your payment link!`, accessToken);
+          } else {
+            const errorText = await checkoutResponse.text();
+            console.error("Checkout initiation failed:", errorText);
+            await sendTextMessage(senderId, "❌ Upgrade initiation failed. Please try again or contact support.", accessToken);
+          }
+          continue;
+        }
+
+        // Handle upgrade text intent
         const sessionState = await ctx.runQuery(api.users.getSessionState, { messengerId: senderId });
+        const activeSessionStates = ["followup_available", "followup_in_progress", "waiting_question", "reading_in_progress"];
+        const isInActiveSession = sessionState && activeSessionStates.includes(sessionState);
+
+        if (trimmedText.toLowerCase().includes("upgrade") && !isInActiveSession) {
+          await sendTextMessage(senderId, "⭐ *Ready to unlock premium features?* ✨\n\nChoose your upgrade path:", accessToken, [
+            { title: "Mystic Guide (₱49) - 5 daily readings", payload: "UPGRADE_MYSTIC" },
+            { title: "Oracle Master (₱99) - Unlimited access", payload: "UPGRADE_ORACLE" },
+          ]);
+          continue;
+        }
 
         // Handle Get Started postback
         if (event.postback?.payload === "GET_STARTED") {
@@ -199,8 +250,6 @@ http.route({
         }
 
         // Handle greetings - send personalized welcome with buttons (only when not in session)
-        const activeSessionStates = ["followup_available", "followup_in_progress", "waiting_question", "reading_in_progress"];
-        const isInActiveSession = sessionState && activeSessionStates.includes(sessionState);
         if (isGreeting(trimmedText) && !isInActiveSession) {
           const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
           const userName = existingUser && (existingUser.firstName || existingUser.lastName)
@@ -223,9 +272,13 @@ http.route({
           const profileMessage = await ctx.runAction(api.users.generateUserProfileMessage, {
             messengerId: senderId,
           });
-          await sendTextMessage(senderId, profileMessage, accessToken, [
+          const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+          const upgradeReplies = user?.userType === "free" ? [
+            { title: "Upgrade Mystic (₱49)", payload: "UPGRADE_MYSTIC" },
+            { title: "Upgrade Oracle (₱99)", payload: "UPGRADE_ORACLE" },
             QUICK_REPLIES.start
-          ]);
+          ] : [QUICK_REPLIES.start];
+          await sendTextMessage(senderId, profileMessage, accessToken, upgradeReplies);
           continue;
         }
 
@@ -257,7 +310,12 @@ http.route({
             const remainingTime = getRemainingTimeUntilTomorrow();
             // Get user info for upgrade prompts
             const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
-            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, existingUser?.userType), accessToken);
+            const userType = existingUser?.userType || "free";
+            const upgradeReplies = userType === "free" ? [
+              { title: "Upgrade Mystic (₱49)", payload: "UPGRADE_MYSTIC" },
+              { title: "Upgrade Oracle (₱99)", payload: "UPGRADE_ORACLE" }
+            ] : [];
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, userType), accessToken, upgradeReplies);
           } else {
             // Get existing user to check birthdate
             const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
@@ -314,7 +372,12 @@ http.route({
             const remainingTime = getRemainingTimeUntilTomorrow();
             // Get user info for upgrade prompts
             const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
-            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, existingUser?.userType), accessToken);
+            // const userType = existingUser?.userType || "free";
+            const upgradeReplies = existingUser?.userType === "free" ? [
+              { title: "Upgrade Mystic (₱49)", payload: "UPGRADE_MYSTIC" },
+              { title: "Upgrade Oracle (₱99)", payload: "UPGRADE_ORACLE" }
+            ] : [];
+            await sendTextMessage(senderId, getDailyLimitMessage(remainingTime, existingUser?.userType), accessToken, upgradeReplies);
             continue;
           }
 
@@ -631,7 +694,11 @@ async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, ques
     // Handle specific error types
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes("Follow-up question limit exceeded")) {
-      await sendTextMessage(messengerId, "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!", accessToken);
+      const upgradeReplies = [
+        { title: "Upgrade Mystic (₱49)", payload: "UPGRADE_MYSTIC" },
+        { title: "Upgrade Oracle (₱99)", payload: "UPGRADE_ORACLE" }
+      ];
+      await sendTextMessage(messengerId, "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!", accessToken, upgradeReplies);
     } else if (errorMessage.includes("Question appears unrelated")) {
       await sendTextMessage(messengerId, "❌ *I couldn't fully connect that question to your reading* ✨\n\nTry rephrasing or asking about specific cards from your spread.", accessToken);
     } else {
@@ -639,6 +706,226 @@ async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, ques
     }
   }
 }
+
+const phpToCentavos = (pesos: number): number => Math.round(pesos * 100);
+
+async function sendUpgradeLink(recipientId: string, title: string, url: string, accessToken: string): Promise<void> {
+  const messageUrl = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+  const messageData = {
+    recipient: { id: recipientId },
+    message: {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [{
+            title: title,
+            subtitle: "This payment is securely processed by Xendit. We accept major credit cards and popular e-wallets.",
+            image_url: "https://example.com/card-image.jpg", // Optional, can omit or use a tarot image
+            default_action: {
+              type: "web_url",
+              url: url,
+              webview_height_ratio: "compact" as const,
+            },
+            buttons: [{
+              type: "web_url",
+              url: url,
+              title: "Pay Now",
+            }],
+          }],
+        },
+      },
+    },
+  };
+
+  const res = await fetch(messageUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(messageData),
+  });
+
+  if (!res.ok) {
+    console.error("Failed to send upgrade link:", res.status, await res.text());
+    // Fallback to text message
+    await sendTextMessage(recipientId, `${title}\n\nThis payment is securely processed by Xendit. We accept major credit cards and popular e-wallets.\n\n${url}`, accessToken);
+  }
+}
+
+// POST /xendit/checkout
+http.route({
+  path: "/xendit/checkout",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = await request.json() as { messengerId: string; plan: "mystic" | "oracle" };
+      const { messengerId, plan } = body;
+
+      if (!messengerId || !plan) {
+        return new Response("Missing messengerId or plan", { status: 400 });
+      }
+
+      // Get or create user
+      let user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId });
+      if (!user) {
+        const userId = await ctx.runMutation(api.users.createOrUpdateUser, {
+          messengerId,
+          firstName: undefined,
+          lastName: undefined,
+        });
+        user = await ctx.runQuery(api.users.getUserById, { userId });
+      }
+
+      const now = Date.now();
+      const externalId = `tb-${plan}-${messengerId}-${now}`;
+      const amount = plan === "mystic" ? 49 : 99;
+      const currency = "PHP";
+      const description = `Upgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`;
+      const redirectUrl = process.env.REDIRECT_URL || "https://your-project.convex.cloud";
+      const successRedirect = `${redirectUrl}/xendit/success?external_id=${externalId}`;
+      const failureRedirect = `${redirectUrl}/xendit/failure?external_id=${externalId}`;
+
+      const secretKey = process.env.XENDIT_SECRET_KEY;
+      if (!secretKey) {
+        console.error("XENDIT_SECRET_KEY not set");
+        return new Response("Server configuration error", { status: 500 });
+      }
+
+      const authHeader = `Basic ${btoa(`${secretKey}:`)}`;
+
+      const invoiceResponse = await fetch("https://api.xendit.co/v2/invoices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          external_id: externalId,
+          amount: phpToCentavos(amount),
+          description,
+          currency,
+          success_redirect_url: successRedirect,
+          failure_redirect_url: failureRedirect,
+        }),
+      });
+
+      if (!invoiceResponse.ok) {
+        const errorText = await invoiceResponse.text();
+        console.error("Xendit invoice creation failed:", invoiceResponse.status, errorText);
+        return new Response("Payment creation failed", { status: 500 });
+      }
+
+      const invoiceData = await invoiceResponse.json();
+      const invoiceUrl = invoiceData.invoice_url;
+
+      if (!invoiceUrl) {
+        console.error("No invoice_url in Xendit response");
+        return new Response("Payment creation failed", { status: 500 });
+      }
+
+      // Persist payment
+      await ctx.runMutation(api.payments.createPayment, {
+        messengerId,
+        plan,
+        externalId,
+        amount,
+        currency,
+        invoiceUrl,
+      });
+
+      const accessToken = process.env.ACCESS_TOKEN;
+      if (accessToken) {
+        await sendUpgradeLink(messengerId, `Upgrade to ${plan} (₱${amount})`, invoiceUrl, accessToken);
+      }
+
+      return new Response(JSON.stringify({ success: true, invoiceUrl }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      console.error("Checkout error:", error);
+      return new Response("Internal server error", { status: 500 });
+    }
+  }),
+});
+
+// POST /xendit/webhook
+http.route({
+  path: "/xendit/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const callbackToken = request.headers.get("x-callback-token");
+      const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
+
+      if (callbackToken !== expectedToken) {
+        console.warn("Invalid callback token");
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      const event = await request.json() as XenditInvoiceEvent;
+
+      console.log("Xendit webhook received:", event);
+
+      if (event.status.toUpperCase() === 'PAID') {
+        const externalId = event.external_id;
+        const payment = await ctx.runQuery(api.payments.getPaymentByExternalId, { externalId });
+
+        if (payment && payment.status === "PENDING") {
+          // Update payment
+          await ctx.runMutation(internal.payments.updatePaymentStatus, {
+            externalId,
+            status: "PAID",
+            invoiceId: event.id,
+            paidAt: event.paid_at ? new Date(event.paid_at).getTime() : Date.now(),
+          });
+
+          // Upgrade user
+          await ctx.runMutation(internal.users.upgradeUserType, {
+            messengerId: payment.messengerId,
+            newType: payment.plan,
+          });
+
+          // Send confirmation
+          const accessToken = process.env.ACCESS_TOKEN;
+          if (accessToken && payment.messengerId) {
+            const planName = payment.plan.charAt(0).toUpperCase() + payment.plan.slice(1);
+            const benefits = payment.plan === "mystic" 
+              ? "- 5 daily tarot readings\n- Unlimited follow-up questions\n- Deeper mystical insights" 
+              : "- Unlimited daily tarot readings\n- Unlimited follow-up questions\n- Advanced oracle guidance";
+            const confirmationMessage = `🎉 Congratulations! You've successfully upgraded to ${planName} Plan! ✨
+
+Your new benefits:
+${benefits}
+
+Enjoy your enhanced mystical experience! 🔮
+
+Ready to start your first reading?`;
+            await sendTextMessage(payment.messengerId, confirmationMessage, accessToken, [
+              { title: "🎴 Start Reading", payload: "Start" },
+              { title: "ℹ️ About Me", payload: "About Me" }
+            ]);
+          }
+        } else if (payment) {
+          console.log("Payment already processed or not pending:", payment.status);
+        } else {
+          console.error("Payment not found for external_id:", externalId);
+        }
+      } else if (["EXPIRED", "FAILED"].some(s => s.toUpperCase() === event.status.toUpperCase())) {
+        // Update status for other events
+        const externalId = event.external_id;
+        await ctx.runMutation(internal.payments.updatePaymentStatus, {
+          externalId,
+          status: event.status.toUpperCase() as 'EXPIRED' | 'FAILED',
+        });
+      }
+
+      return new Response("OK", { status: 200 });
+    } catch (error) {
+      console.error("Webhook error:", error);
+      return new Response("Internal server error", { status: 500 });
+    }
+  }),
+});
 
 export default http;
 

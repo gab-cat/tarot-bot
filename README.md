@@ -105,6 +105,11 @@ FACEBOOK_APP_SECRET=your_app_secret
 
 # Convex (auto-generated when you run convex dev)
 CONVEX_URL=your_convex_deployment_url
+
+# Xendit Payment Integration
+XENDIT_SECRET_KEY=xnd_development_...  # Secret API key from Xendit Dashboard (Test mode for development)
+XENDIT_CALLBACK_TOKEN=your_webhook_callback_token  # Callback token from Xendit Dashboard for webhook validation
+APP_BASE_URL=https://your-project.convex.cloud  # Your Convex deployment URL (replace with actual)
 ```
 
 ### Getting API Keys
@@ -122,6 +127,15 @@ CONVEX_URL=your_convex_deployment_url
 3. Add Messenger product
 4. Generate Page Access Token and App Secret
 5. Set up webhooks pointing to your Convex HTTP endpoints
+
+#### Xendit Setup
+
+1. Log in to your Xendit Dashboard
+2. Go to Settings > API Keys and copy the Secret Key (use Test key initially)
+3. Go to Settings > Callbacks, set Invoice callback URL to `{APP_BASE_URL}/xendit/webhook`, and copy the Callback Token
+4. Enable PHP currency and suitable payment methods (Cards, GCash, etc.)
+
+**Important**: For production, set these environment variables in your Convex dashboard under project settings, not just in `.env`.
 
 ## 🎮 Usage
 
@@ -265,6 +279,29 @@ bunx convex deploy
 2. Subscribe to `messages` and `messaging_postbacks` events
 3. Verify the webhook with your `FACEBOOK_VERIFY_TOKEN`
 
+### Xendit Dashboard Steps
+
+1. **API Keys**
+   - Go to Dashboard → Settings → API Keys
+   - Create/Copy Secret API Key (Test for now)
+
+2. **Callback/Webhooks**
+   - Dashboard → Settings → Callbacks (or API & Webhooks)
+   - Set `Invoice` callback URL to `https://<your-deployment>.convex.cloud/xendit/webhook`
+   - Set/Copy `Callback Token` and put it in `XENDIT_CALLBACK_TOKEN`
+
+3. **Payment Methods**
+   - Enable payment methods suitable for PH (Cards, GCash, GrabPay, etc.)
+
+4. **Currencies**
+   - Ensure PHP is enabled on your account
+
+5. **Test Mode**
+   - Keep in Test; use test cards/GCash sandbox per Xendit docs
+
+6. **Go Live**
+   - Switch to Live, rotate keys if needed, update Convex env vars, re-test
+
 ### Environment Variables for Production
 
 Set the same environment variables in your Convex dashboard:
@@ -273,6 +310,9 @@ Set the same environment variables in your Convex dashboard:
 - `FACEBOOK_PAGE_ACCESS_TOKEN`
 - `FACEBOOK_VERIFY_TOKEN`
 - `FACEBOOK_APP_SECRET`
+- `XENDIT_SECRET_KEY`
+- `XENDIT_CALLBACK_TOKEN`
+- `APP_BASE_URL`
 
 ## 🧪 Development
 

@@ -465,11 +465,35 @@ export const generateUserProfileMessage = action({
       : "";
 
     return `👤 *About ${userName}*
-
+ 
 *Spiritual Level:* ${userTypeDisplay}
 *Readings Completed:* ${lastReadings.length}
 
 *Your Mystical Essence:*
 ${description}${upgradeMessage}`;
+  },
+});
+
+export const upgradeUserType = internalMutation({
+  args: {
+    messengerId: v.string(),
+    newType: v.union(v.literal("mystic"), v.literal("oracle")),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
+      .first();
+
+    if (!user) {
+      console.error(`User not found for messengerId: ${args.messengerId}`);
+      return;
+    }
+
+    await ctx.db.patch(user._id, {
+      userType: args.newType,
+      isSubscribed: true,
+      lastActiveAt: Date.now(),
+    });
   },
 });
