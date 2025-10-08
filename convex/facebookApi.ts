@@ -179,6 +179,112 @@ function buildFollowupQuickReplies(remainingQuestions: number): FacebookQuickRep
   return quickReplies;
 }
 
+// Welcome Screen API functions
+export const setupWelcomeScreen = action({
+  args: {},
+  handler: async (): Promise<{success: boolean, errors: string[]}> => {
+    const accessToken = process.env.ACCESS_TOKEN;
+    if (!accessToken) {
+      return { success: false, errors: ["ACCESS_TOKEN not configured"] };
+    }
+
+    const errors: string[] = [];
+
+    try {
+      // Set up Get Started button
+      const getStartedSuccess = await setupGetStartedButton(accessToken);
+      if (!getStartedSuccess) {
+        errors.push("Failed to set up Get Started button");
+      }
+
+      // Set up greeting text
+      const greetingSuccess = await setupGreetingText(accessToken);
+      if (!greetingSuccess) {
+        errors.push("Failed to set up greeting text");
+      }
+
+      return {
+        success: errors.length === 0,
+        errors
+      };
+    } catch (error) {
+      console.error("Error setting up welcome screen:", error);
+      return { success: false, errors: ["Unexpected error occurred"] };
+    }
+  },
+});
+
+async function setupGetStartedButton(accessToken: string): Promise<boolean> {
+  try {
+    const url = `https://graph.facebook.com/v19.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        get_started: {
+          payload: "GET_STARTED"
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Failed to set Get Started button:", response.status, errorText);
+      return false;
+    }
+
+    const result = await response.json();
+    console.log("Get Started button setup result:", result);
+    return result.result === "success";
+  } catch (error) {
+    console.error("Error setting up Get Started button:", error);
+    return false;
+  }
+}
+
+async function setupGreetingText(accessToken: string): Promise<boolean> {
+  try {
+    const url = `https://graph.facebook.com/v19.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
+
+    const greetingData = {
+      greeting: [
+        {
+          locale: "default",
+          text: "🎴 Welcome to Mystical Tarot Readings ✨\n\nDiscover what the cards have to reveal about your journey. 🔮"
+        },
+        {
+          locale: "en_US",
+          text: "🎴 Welcome to Mystical Tarot Readings ✨\n\nDiscover what the cards have to reveal about your journey. 🔮"
+        }
+      ]
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(greetingData),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Failed to set greeting text:", response.status, errorText);
+      return false;
+    }
+
+    const result = await response.json();
+    console.log("Greeting text setup result:", result);
+    return result.result === "success";
+  } catch (error) {
+    console.error("Error setting up greeting text:", error);
+    return false;
+  }
+}
+
 async function sendMessageToFacebook(messageData: FacebookMessageData, accessToken: string): Promise<boolean> {
   try {
     const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;

@@ -119,13 +119,21 @@ http.route({
         const messageText: string | undefined = event.message?.text;
         const isEcho: boolean = Boolean(event.message?.is_echo);
 
-        // Only process actual message events with text, ignore delivery confirmations, etc.
-        if (!senderId || isEcho || !event.message || !messageText) continue;
+        // Only process actual message events with text or postback events, ignore delivery confirmations, etc.
+        const hasValidContent = event.message && !isEcho && messageText || event.postback;
+        if (!senderId || !hasValidContent) continue;
 
-        const trimmedText = messageText.trim();
+        const trimmedText = messageText ? messageText.trim() : "";
 
         // Check session state first - if user is in a session, treat their message as a question
         const sessionState = await ctx.runQuery(api.users.getSessionState, { messengerId: senderId });
+
+        // Handle Get Started postback
+        if (event.postback?.payload === "GET_STARTED") {
+          await handleGetStartedPostback(ctx, senderId, accessToken);
+          console.log("Get Started postback handled");
+          continue;
+        }
 
         // Handle follow-up session states
         if (sessionState === "followup_available" || sessionState === "followup_in_progress") {
@@ -217,6 +225,25 @@ http.route({
           });
           await sendTextMessage(senderId, profileMessage, accessToken, [
             QUICK_REPLIES.start
+          ]);
+          continue;
+        }
+
+        // Handle "Quick Question" - provide quick guidance
+        if (trimmedText.toLowerCase().includes("quick question") && !isInActiveSession) {
+          await sendTextMessage(senderId, "❓ *Quick mystical guidance awaits...* ✨\n\nShare your brief question or situation, and I'll draw a single card to illuminate your path. 🌙", accessToken, [
+            QUICK_REPLIES.start,
+            QUICK_REPLIES.aboutMe
+          ]);
+          continue;
+        }
+
+        // Handle "Daily Insight" - provide general daily guidance
+        if (trimmedText.toLowerCase().includes("daily insight") && !isInActiveSession) {
+          await sendTextMessage(senderId, "✨ *Daily cosmic wisdom...* 🔮\n\nThe cards have a special message for you today. Ready to receive their guidance?", accessToken, [
+            QUICK_REPLIES.start,
+            QUICK_REPLIES.guidance,
+            QUICK_REPLIES.aboutMe
           ]);
           continue;
         }
@@ -425,6 +452,41 @@ http.route({
     return new Response(ERRORS.eventReceived, { status: 200 });
   }),
 });
+
+// Handle Get Started postback
+async function handleGetStartedPostback(ctx: ActionCtx, messengerId: string, accessToken: string): Promise<void> {
+  try {
+    // Get user profile information
+    let userProfile = null;
+    try {
+      userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
+        userId: messengerId,
+        accessToken,
+      });
+    } catch (error) {
+      console.warn("Failed to fetch user profile for Get Started:", error);
+    }
+
+    // Create personalized welcome message
+    const userName = userProfile?.first_name || userProfile?.name?.split(' ')[0];
+    const welcomeMessage = userName
+      ? `🎴 *Welcome, ${userName}!* ✨\n\nThe ancient cards are whispering your name... I'm your mystical tarot guide, here to illuminate your path with cosmic wisdom. 🔮\n\nWhat question calls to your soul today?`
+      : MESSAGES.getStartedWelcome;
+
+    await sendTextMessage(messengerId, welcomeMessage, accessToken, [
+      QUICK_REPLIES.start,
+      QUICK_REPLIES.quickQuestion,
+      QUICK_REPLIES.aboutMe
+    ]);
+
+  } catch (error) {
+    console.error("Error handling Get Started postback:", error);
+    await sendTextMessage(messengerId, MESSAGES.welcome, accessToken, [
+      QUICK_REPLIES.start,
+      QUICK_REPLIES.aboutMe
+    ]);
+  }
+}
 
 // Handle follow-up messages during active follow-up sessions
 async function handleFollowupMessage(ctx: ActionCtx, messengerId: string, messageText: string, accessToken: string, event: FacebookWebhookMessaging): Promise<void> {

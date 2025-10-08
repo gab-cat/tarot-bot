@@ -100,7 +100,8 @@ export const FALLBACK_INTERPRETATION = {
 // Messenger bot message constants
 export const MESSAGES = {
   // Welcome and start messages
-  welcome: "🎴 *Welcome to your mystical tarot reading!* ✨\n\nAsk me anything your heart desires, or simply describe your question or situation. You can also choose from the options below:",
+  welcome: "🎴 *Welcome to your mystical tarot reading!* ✨\n\nThe ancient cards await your question. What wisdom do you seek from the mystical realms?",
+  getStartedWelcome: "🎴 *The cards are calling to you...* ✨\n\nI'm here to illuminate your path with ancient wisdom and cosmic insights. 🔮 What question burns in your heart today?",
   readingInProgress: "🔮 *Whispering to the cards...* ✨\n\nI'm connecting with the mystical energies and drawing your three sacred cards. This may take a moment... 🌙",
   cardsDrawn: "🎴 *Your Cards Are Drawn* ✨\n\n*Whispering with the ancient energies to reveal their story...*",
 
@@ -125,12 +126,14 @@ export const MESSAGES = {
 
 // Quick reply options
 export const QUICK_REPLIES = {
-  start: { title: "🎴 Start Reading", payload: "Start" },
+  start: { title: "🔮 Start My Reading", payload: "Start" },
   aboutMe: { title: "👤 About Me", payload: "About Me" },
-  career: { title: "💼 Career Path", payload: "What's my career path?" },
-  love: { title: "💝 Love & Relationships", payload: "How can I find true love?" },
-  growth: { title: "🧘 Personal Growth", payload: "What should I focus on today?" },
-  guidance: { title: "🎯 General Guidance", payload: "What guidance do the cards have for me?" }
+  career: { title: "💼 Career & Work", payload: "What's my career path?" },
+  love: { title: "💝 Love & Heart", payload: "How can I find true love?" },
+  growth: { title: "🌱 Personal Growth", payload: "What should I focus on today?" },
+  guidance: { title: "🎯 Life Guidance", payload: "What guidance do the cards have for me?" },
+  quickQuestion: { title: "❓ Quick Question", payload: "Quick Question" },
+  dailyInsight: { title: "✨ Daily Insight", payload: "Daily Insight" }
 } as const;
 
 // Error messages
