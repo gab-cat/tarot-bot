@@ -102,7 +102,7 @@ export const sendFollowupPrompt = action({
       const messageData = {
         recipient: { id: args.messengerId },
         message: {
-          text: "🔮 *What's on your mind?* ✨\n\nSend me any message to ask follow-up questions about your reading for deeper insights.",
+          text: "🔮 *What's on your mind?* ✨\n\nSend me any message to ask follow-up questions about your reading for deeper insights.\n\n⏰ *Follow-ups will be entertained within 10 minutes*",
           quick_replies: [
             {
               content_type: "text",

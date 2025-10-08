@@ -1,7 +1,7 @@
-import { action, query } from "./_generated/server";
+import { action, query, ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { FOLLOWUP_LIMITS } from "./constants";
+import { FOLLOWUP_LIMITS, QUICK_REPLIES } from "./constants";
 import { Id } from "./_generated/dataModel";
 
 // Types for follow-up functionality
@@ -369,3 +369,56 @@ export function isQuestionValid(question: string): boolean {
 
   return hasTarotContext || isFollowupStyle;
 }
+
+export const autoEndFollowupSession = action({
+  args: {
+    readingId: v.id("readings"),
+    messengerId: v.string(),
+  },
+  handler: async (ctx: ActionCtx, args): Promise<void> => {
+    try {
+      // Check if the session is still active
+      const reading = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
+      if (!reading || reading.sessionState !== "followup_available" && reading.sessionState !== "followup_in_progress") {
+        // Session already ended or not in followup state
+        return;
+      }
+
+      // End the followup session
+      await ctx.runAction(api.followups.endFollowupSession, {
+        readingId: args.readingId,
+        messengerId: args.messengerId
+      });
+
+      // Send Start Reading button
+      const accessToken = process.env.ACCESS_TOKEN;
+      if (accessToken) {
+        const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+        const messageData = {
+          recipient: { id: args.messengerId },
+          messaging_type: "RESPONSE",
+          message: {
+            text: "⏰ *Your 10-minute follow-up window has ended* ✨\n\nReady for your next mystical journey? 🔮",
+            quick_replies: [{
+              content_type: "text",
+              title: QUICK_REPLIES.start.title,
+              payload: QUICK_REPLIES.start.payload
+            }]
+          },
+        };
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(messageData),
+        });
+
+        if (!response.ok) {
+          console.error("Failed to send auto-end message:", response.status, await response.text());
+        }
+      }
+    } catch (error) {
+      console.error("Error in autoEndFollowupSession:", error);
+    }
+  },
+});

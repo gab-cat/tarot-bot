@@ -438,6 +438,12 @@ http.route({
                 if (!success) {
                   console.warn("Failed to send followup prompt after reading completion");
                 }
+
+                // Schedule automatic session cleanup after 10 minutes
+                await ctx.scheduler.runAfter(10 * 60 * 1000, api.followups.autoEndFollowupSession, {
+                  readingId: latestReading._id,
+                  messengerId: senderId
+                });
               }
             }
           } catch (error) {
