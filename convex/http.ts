@@ -722,7 +722,6 @@ async function sendUpgradeLink(recipientId: string, title: string, url: string, 
             title: title,
             subtitle: "This payment is securely processed by Xendit. We accept major credit cards and popular e-wallets.",
             image_url: "https://dependable-gopher-336.convex.cloud/api/storage/c3c82463-85ae-45b6-b864-05e30d70a4e2", // Optional, can omit or use a tarot image
-            bgcolor: "#8B5CF6", // Violet color for the card background
             default_action: {
               type: "web_url",
               url: url,
