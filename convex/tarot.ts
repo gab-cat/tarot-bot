@@ -141,7 +141,7 @@ ${cardInfo}
 Please provide a meaningful tarot interpretation connecting these cards${userName ? ` specifically for ${userName}` : ""}.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: systemPrompt + "\n\n" + userPrompt,
     });
 
@@ -217,7 +217,7 @@ ${cardSummary}
 Provide a brief, conversational response (1-4 sentences) that addresses this specific question while connecting back to the original reading.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-pro",
       contents: systemPrompt + "\n\n" + userPrompt,
     });
 
