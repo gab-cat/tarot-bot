@@ -63,7 +63,7 @@ export const uploadImageAttachment = action({
 
     const multipartData = Buffer.concat(buffers);
 
-    const url = `https://graph.facebook.com/v19.0/me/message_attachments?access_token=${encodeURIComponent(accessToken as string)}`;
+    const url = `https://graph.facebook.com/v23.0/me/message_attachments?access_token=${encodeURIComponent(accessToken as string)}`;
 
     const res = await fetch(url, {
       method: "POST",
@@ -291,7 +291,7 @@ async function uploadImageBuffer(
 
   const multipartData = Buffer.concat(buffers);
 
-  const url = `https://graph.facebook.com/v19.0/me/message_attachments?access_token=${encodeURIComponent(accessToken)}`;
+  const url = `https://graph.facebook.com/v23.0/me/message_attachments?access_token=${encodeURIComponent(accessToken)}`;
 
   const res = await fetch(url, {
     method: "POST",

@@ -393,7 +393,7 @@ export const autoEndFollowupSession = action({
       // Send Start Reading button
       const accessToken = process.env.ACCESS_TOKEN;
       if (accessToken) {
-        const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+        const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
         const messageData = {
           recipient: { id: args.messengerId },
           messaging_type: "RESPONSE",

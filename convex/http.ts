@@ -710,7 +710,7 @@ async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, ques
 const phpToCentavos = (pesos: number): number => Math.round(pesos * 100);
 
 async function sendUpgradeLink(recipientId: string, title: string, url: string, accessToken: string): Promise<void> {
-  const messageUrl = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+  const messageUrl = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
   const messageData = {
     recipient: { id: recipientId },
     message: {
@@ -974,7 +974,7 @@ function isGreeting(text: string): boolean {
 }
 
 async function sendTextMessage(recipientId: string, text: string, accessToken: string, quickReplies?: Array<{title: string, payload: string}>): Promise<void> {
-  const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+  const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
   const message: FacebookMessageData["message"] = { text };
   if (quickReplies && quickReplies.length > 0) {
     message.quick_replies = quickReplies.map(reply => ({
@@ -999,6 +999,45 @@ async function sendTextMessage(recipientId: string, text: string, accessToken: s
   if (!res.ok) {
     const errorText = await res.text().catch(() => "<no body>");
     console.error("Failed to send message:", res.status, errorText);
+
+    // Check if this is a thread control error (another app is controlling the thread)
+    try {
+      const errorData = JSON.parse(errorText);
+      if (errorData.error?.code === 10 && errorData.error?.error_subcode === 2018300) {
+        console.log("Detected thread control error, attempting to take thread control...");
+
+        // Try to take thread control
+        const takeControlUrl = `https://graph.facebook.com/v23.0/me/take_thread_control?access_token=${encodeURIComponent(accessToken)}`;
+        const controlResponse = await fetch(takeControlUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipient: { id: recipientId },
+          }),
+        });
+
+        if (controlResponse.ok) {
+          console.log("Successfully took thread control, retrying message...");
+          // Retry the original message
+          const retryRes = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (retryRes.ok) {
+            console.log("Message sent successfully after taking thread control");
+            return;
+          } else {
+            console.error("Failed to send message after taking thread control:", retryRes.status, await retryRes.text());
+          }
+        } else {
+          console.error("Failed to take thread control:", controlResponse.status, await controlResponse.text());
+        }
+      }
+    } catch (parseError) {
+      console.error("Error parsing Facebook error response:", parseError);
+    }
   }
 }
 
@@ -1011,7 +1050,7 @@ async function sendImageMessage(ctx: ActionCtx, recipientId: string, imageFilena
     });
 
     // Then send the message using the attachment_id
-    const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
 
     const messageData = {
       recipient: {
@@ -1058,7 +1097,7 @@ async function sendMultipleImageMessage(ctx: ActionCtx, recipientId: string, ima
     });
 
     // Send all images as attachments in one message
-    const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
 
     const attachments = attachmentIds.map((attachmentId: string) => ({
       type: "image",
@@ -1100,7 +1139,7 @@ async function sendMultipleImageMessage(ctx: ActionCtx, recipientId: string, ima
         accessToken
       });
 
-      const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+      const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
 
       const attachments = attachmentIds.map((attachmentId: string) => ({
         type: "image",

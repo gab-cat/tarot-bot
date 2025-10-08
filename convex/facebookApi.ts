@@ -35,7 +35,7 @@ export const getUserProfile = action({
   },
   handler: async (_, args): Promise<FacebookUserProfile | null> => {
     try {
-      const url = `https://graph.facebook.com/v19.0/${args.userId}?fields=id,first_name,last_name,name&access_token=${encodeURIComponent(args.accessToken)}`;
+      const url = `https://graph.facebook.com/v23.0/${args.userId}?fields=id,first_name,last_name,name&access_token=${encodeURIComponent(args.accessToken)}`;
 
       const response = await fetch(url);
 
@@ -216,7 +216,7 @@ export const setupWelcomeScreen = action({
 
 async function setupGetStartedButton(accessToken: string): Promise<boolean> {
   try {
-    const url = `https://graph.facebook.com/v19.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v23.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
 
     const response = await fetch(url, {
       method: "POST",
@@ -247,7 +247,7 @@ async function setupGetStartedButton(accessToken: string): Promise<boolean> {
 
 async function setupGreetingText(accessToken: string): Promise<boolean> {
   try {
-    const url = `https://graph.facebook.com/v19.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v23.0/me/messenger_profile?access_token=${encodeURIComponent(accessToken)}`;
 
     const greetingData = {
       greeting: [
@@ -285,9 +285,44 @@ async function setupGreetingText(accessToken: string): Promise<boolean> {
   }
 }
 
+export const takeThreadControl = action({
+  args: {
+    recipientId: v.string(),
+    accessToken: v.string(),
+  },
+  handler: async (_, args): Promise<boolean> => {
+    try {
+      const url = `https://graph.facebook.com/v23.0/me/take_thread_control?access_token=${encodeURIComponent(args.accessToken)}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          recipient: { id: args.recipientId },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Failed to take thread control:", response.status, errorText);
+        return false;
+      }
+
+      const result = await response.json();
+      console.log("Thread control taken successfully:", result);
+      return result.success === true;
+    } catch (error) {
+      console.error("Error taking thread control:", error);
+      return false;
+    }
+  },
+});
+
 async function sendMessageToFacebook(messageData: FacebookMessageData, accessToken: string): Promise<boolean> {
   try {
-    const url = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
 
     const response = await fetch(url, {
       method: "POST",
