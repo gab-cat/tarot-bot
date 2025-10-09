@@ -28,6 +28,10 @@ interface FacebookMessageData {
   };
 }
 
+/**
+ * Attempts to get user profile from Facebook using PSID.
+ * Note: This will fail for users registered via phone number (error 100/33).
+ */
 export const getUserProfile = action({
   args: {
     userId: v.string(), // PSID (Page-Scoped User ID)
@@ -40,14 +44,109 @@ export const getUserProfile = action({
       const response = await fetch(url);
 
       if (!response.ok) {
-        console.error("Facebook API error:", response.status, await response.text());
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+
+        const errorCode = errorData?.error?.code;
+        const errorSubcode = errorData?.error?.error_subcode;
+
+        // Error 100 with subcode 33 typically means:
+        // 1. User registered via phone number (cannot query their profile)
+        // 2. Missing permissions
+        // 3. Invalid PSID
+        if (errorCode === 100 && errorSubcode === 33) {
+          console.warn(
+            `Cannot fetch profile for PSID ${args.userId}. ` +
+            `This user likely registered via phone number, which prevents profile access via Graph API. ` +
+            `Error details:`,
+            errorData
+          );
+        } else {
+          console.error(
+            `Facebook API error fetching user profile (PSID: ${args.userId}):`,
+            response.status,
+            errorData
+          );
+        }
         return null;
       }
 
       const profile: FacebookUserProfile = await response.json();
+      console.log(`Successfully fetched profile for PSID ${args.userId}:`, {
+        id: profile.id,
+        has_first_name: !!profile.first_name,
+        has_last_name: !!profile.last_name,
+      });
       return profile;
     } catch (error) {
       console.error("Error fetching user profile from Facebook:", error);
+      return null;
+    }
+  },
+});
+
+/**
+ * WORKAROUND: Attempts to get user info via message_id instead of PSID.
+ * This may work for phone-registered users since we're querying the message object,
+ * not the user profile directly.
+ */
+export const getUserProfileViaMessage = action({
+  args: {
+    messageId: v.string(), // Facebook message ID (mid)
+    accessToken: v.string(),
+  },
+  handler: async (_, args): Promise<FacebookUserProfile | null> => {
+    try {
+      const url = `https://graph.facebook.com/v23.0/${args.messageId}?fields=from&access_token=${encodeURIComponent(args.accessToken)}`;
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: { message: errorText } };
+        }
+
+        console.warn(
+          `Cannot fetch sender info via message_id ${args.messageId}:`,
+          errorData
+        );
+        return null;
+      }
+
+      const messageData = await response.json();
+      
+      // The 'from' field should contain sender info
+      if (messageData.from) {
+        const profile: FacebookUserProfile = {
+          id: messageData.from.id,
+          name: messageData.from.name,
+          first_name: messageData.from.first_name,
+          last_name: messageData.from.last_name,
+        };
+        
+        console.log(`Successfully fetched profile via message_id ${args.messageId}:`, {
+          id: profile.id,
+          has_name: !!profile.name,
+          has_first_name: !!profile.first_name,
+          has_last_name: !!profile.last_name,
+        });
+        
+        return profile;
+      }
+
+      console.warn(`No 'from' field in message ${args.messageId}`);
+      return null;
+    } catch (error) {
+      console.error("Error fetching user profile via message_id:", error);
       return null;
     }
   },

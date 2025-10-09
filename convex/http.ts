@@ -134,6 +134,7 @@ http.route({
       for (const event of messagingEvents) {
         const senderId: string | undefined = event.sender?.id;
         const messageText: string | undefined = event.message?.text;
+        const messageId: string | undefined = event.message?.mid; // For workaround to get user profile
         const isEcho: boolean = Boolean(event.message?.is_echo);
 
         // Only process actual message events with text or postback events, ignore delivery confirmations, etc.
@@ -418,6 +419,16 @@ http.route({
               userId: senderId,
               accessToken,
             });
+            
+            // WORKAROUND: If getUserProfile fails (e.g., phone-registered user) and we have messageId,
+            // try fetching user info via the message object instead
+            if (!userProfile && messageId) {
+              console.log(`Trying workaround: fetching user profile via message_id ${messageId}`);
+              userProfile = await ctx.runAction(api.facebookApi.getUserProfileViaMessage, {
+                messageId,
+                accessToken,
+              });
+            }
           } catch (error) {
             console.warn("Failed to fetch user profile from Facebook:", error);
           }

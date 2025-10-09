@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation, action } from "./_generated/server";
+import { mutation, query, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { type Doc } from "./_generated/dataModel";
@@ -496,5 +496,169 @@ export const upgradeUserType = internalMutation({
       isSubscribed: true,
       lastActiveAt: Date.now(),
     });
+  },
+});
+
+/**
+ * INTERNAL: Migrate existing users without names to fetch and save their profile info
+ * This function can be run manually or as a background job to backfill user data
+ */
+export const migrateUserProfiles = internalAction({
+  args: {
+    batchSize: v.optional(v.number()), // How many users to process at once (default: 10)
+    dryRun: v.optional(v.boolean()), // If true, only log what would be done without making changes
+  },
+  handler: async (ctx, args) => {
+    const batchSize = args.batchSize || 10;
+    const dryRun = args.dryRun || false;
+
+    console.log(`🔄 Starting user profile migration (batchSize: ${batchSize}, dryRun: ${dryRun})`);
+
+    // Find users without firstName and lastName
+    const usersWithoutNames = await ctx.runQuery(internal.users.getUsersWithoutNames);
+
+    console.log(`📊 Found ${usersWithoutNames.length} users without profile information`);
+
+    if (usersWithoutNames.length === 0) {
+      console.log("✅ No users need migration");
+      return {
+        success: true,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        message: "No users need migration"
+      };
+    }
+
+    let processed = 0;
+    let successful = 0;
+    let failed = 0;
+
+    // Process users in batches
+    const batches = [];
+    for (let i = 0; i < usersWithoutNames.length; i += batchSize) {
+      batches.push(usersWithoutNames.slice(i, i + batchSize));
+    }
+
+    for (const batch of batches) {
+      console.log(`📦 Processing batch of ${batch.length} users...`);
+
+      // Process each user in the batch
+      const batchPromises = batch.map(async (user) => {
+        try {
+          console.log(`🔍 Processing user ${user.messengerId}...`);
+
+          // Try to fetch user profile using the standard approach
+          const userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
+            userId: user.messengerId,
+            accessToken: process.env.ACCESS_TOKEN!,
+          });
+
+          // If standard approach fails, this is likely a phone-registered user
+          // We can't migrate them automatically since we don't have their message_id
+          if (!userProfile) {
+            console.warn(`⚠️ Cannot fetch profile for user ${user.messengerId} (likely phone-registered)`);
+            failed++;
+            return { userId: user._id, success: false, reason: "Cannot fetch profile (phone-registered)" };
+          }
+
+          console.log(`✅ Successfully fetched profile for user ${user.messengerId}:`, {
+            has_first_name: !!userProfile.first_name,
+            has_last_name: !!userProfile.last_name,
+          });
+
+          if (!dryRun) {
+            // Update the user with the fetched profile information
+            await ctx.runMutation(internal.users.updateUserProfile, {
+              messengerId: user.messengerId,
+              firstName: userProfile.first_name,
+              lastName: userProfile.last_name,
+            });
+          }
+
+          successful++;
+          return { userId: user._id, success: true, profile: userProfile };
+        } catch (error) {
+          console.error(`❌ Error processing user ${user.messengerId}:`, error);
+          failed++;
+          return { userId: user._id, success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      });
+
+      // Wait for all users in this batch to be processed
+      const batchResults = await Promise.all(batchPromises);
+      processed += batchResults.length;
+
+      console.log(`✅ Batch complete: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
+    }
+
+    const result = {
+      success: true,
+      processed,
+      successful,
+      failed,
+      message: `Migration complete: ${successful}/${processed} users updated successfully`,
+      dryRun
+    };
+
+    console.log(`🎉 Migration complete:`, result);
+    return result;
+  },
+});
+
+/**
+ * INTERNAL: Query to find users without firstName and lastName
+ */
+export const getUsersWithoutNames = internalQuery({
+  handler: async (ctx) => {
+    // Find users where both firstName and lastName are missing/empty
+    const users = await ctx.db
+      .query("users")
+      .filter((q) =>
+        q.and(
+          q.or(q.eq(q.field("firstName"), undefined), q.eq(q.field("firstName"), "")),
+          q.or(q.eq(q.field("lastName"), undefined), q.eq(q.field("lastName"), ""))
+        )
+      )
+      .collect();
+
+    return users.map(user => ({
+      _id: user._id,
+      messengerId: user.messengerId,
+      createdAt: user._creationTime
+    }));
+  },
+});
+
+/**
+ * INTERNAL: Update user profile information
+ */
+export const updateUserProfile = internalMutation({
+  args: {
+    messengerId: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
+      .first();
+
+    if (!user) {
+      throw new Error(`User not found: ${args.messengerId}`);
+    }
+
+    const updates: Partial<Doc<"users">> = {};
+    if (args.firstName !== undefined) {
+      updates.firstName = args.firstName;
+    }
+    if (args.lastName !== undefined) {
+      updates.lastName = args.lastName;
+    }
+
+    await ctx.db.patch(user._id, updates);
+
+    console.log(`✅ Updated profile for user ${args.messengerId}:`, updates);
   },
 });
