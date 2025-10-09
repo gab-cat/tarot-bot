@@ -218,11 +218,31 @@ http.route({
         if (sessionState === "waiting_birthdate") {
           // Validate the birthdate format
           if (validateBirthdate(trimmedText)) {
-            // Save the birthdate and move to question asking
+            // Get user profile from Facebook to save firstName and lastName
+            let userProfile = null;
+            try {
+              userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
+                userId: senderId,
+                accessToken,
+              });
+            } catch (error) {
+              console.warn("Failed to fetch user profile from Facebook during birthdate save:", error);
+            }
+
+            // Save the birthdate and firstName/lastName
             await ctx.runMutation(api.users.updateUserBirthdate, {
               messengerId: senderId,
               birthdate: trimmedText.trim()
             });
+
+            // Update user with firstName and lastName if we got them
+            if (userProfile?.first_name || userProfile?.last_name) {
+              await ctx.runMutation(api.users.createOrUpdateUser, {
+                messengerId: senderId,
+                firstName: userProfile?.first_name,
+                lastName: userProfile?.last_name,
+              });
+            }
 
             // Start the reading session
             await ctx.runMutation(api.users.startSession, { messengerId: senderId });
@@ -321,12 +341,37 @@ http.route({
             // Get existing user to check birthdate
             const existingUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
 
-            // Check if user has birthdate
+            // Check if user has birthdate and firstName/lastName
             if (!existingUser?.birthdate) {
               // No birthdate - prompt for it first
               await ctx.runMutation(api.users.setWaitingBirthdate, { messengerId: senderId });
               await sendTextMessage(senderId, MESSAGES.promptBirthdate, accessToken);
             } else {
+              // Has birthdate - check if we need to fetch firstName/lastName
+              if (!existingUser?.firstName && !existingUser?.lastName) {
+                // Try to fetch user profile from Facebook
+                let userProfile = null;
+                try {
+                  userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
+                    userId: senderId,
+                    accessToken,
+                  });
+                } catch (error) {
+                  console.warn("Failed to fetch user profile from Facebook during reading start:", error);
+                }
+
+                // Update user with firstName and lastName if we got them
+                if (userProfile?.first_name || userProfile?.last_name) {
+                  await ctx.runMutation(api.users.createOrUpdateUser, {
+                    messengerId: senderId,
+                    firstName: userProfile?.first_name,
+                    lastName: userProfile?.last_name,
+                  });
+                  // Refresh user data for personalized greeting
+                  const updatedUser = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+                  Object.assign(existingUser, updatedUser);
+                }
+              }
               // Has birthdate - proceed with reading
               // End any existing session first
               await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
