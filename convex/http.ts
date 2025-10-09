@@ -708,7 +708,7 @@ async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, ques
   }
 }
 
-const phpToCentavos = (pesos: number): number => Math.round(pesos * 100);
+export const phpToCentavos = (pesos: number): number => Math.round(pesos * 100);
 
 async function sendUpgradeLink(recipientId: string, title: string, url: string, accessToken: string): Promise<void> {
   const messageUrl = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(accessToken)}`;
@@ -801,7 +801,7 @@ http.route({
         },
         body: JSON.stringify({
           external_id: externalId,
-          amount: phpToCentavos(amount),
+          amount,
           description,
           currency,
           success_redirect_url: successRedirect,
