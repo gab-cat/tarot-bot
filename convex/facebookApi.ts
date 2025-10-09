@@ -1,6 +1,6 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
-import { FOLLOWUP_QUICK_REPLIES } from "./constants";
+import { FOLLOWUP_QUICK_REPLIES, toBoldFont } from "./constants";
 
 export interface FacebookUserProfile {
   id: string;
@@ -102,7 +102,7 @@ export const sendFollowupPrompt = action({
       const messageData = {
         recipient: { id: args.messengerId },
         message: {
-          text: "🔮 *What's on your mind?* ✨\n\nSend me any message to ask follow-up questions about your reading for deeper insights.\n\n⏰ *Follow-ups will be entertained within 10 minutes*",
+          text: `🔮 ${toBoldFont("What's on your mind?")} ✨\n\nSend me any message to ask follow-up questions about your reading for deeper insights.\n\n⏰ ${toBoldFont("Follow-ups will be entertained within 10 minutes")}`,
           quick_replies: [
             {
               content_type: "text",

@@ -3,6 +3,7 @@ import { httpAction, type ActionCtx } from "./_generated/server";
 import { drawThreeRandomCards, type DrawnCard } from "./tarot";
 import { api, internal } from "./_generated/api";
 import { type Doc } from "./_generated/dataModel";
+import { toBoldFont } from "./constants";
 
 
 // Facebook webhook types
@@ -172,7 +173,7 @@ http.route({
         const isInActiveSession = sessionState && activeSessionStates.includes(sessionState);
 
         if (trimmedText.toLowerCase().includes("upgrade") && !isInActiveSession) {
-          await sendTextMessage(senderId, "⭐ *Ready to unlock premium features?* ✨\n\nChoose your upgrade path:", accessToken, [
+          await sendTextMessage(senderId, `⭐ ${toBoldFont("Ready to unlock premium features?")} ✨\n\nChoose your upgrade path:`, accessToken, [
             { title: "Mystic Guide (₱49) - 5 daily readings", payload: "UPGRADE_MYSTIC" },
             { title: "Oracle Master (₱99) - Unlimited access", payload: "UPGRADE_ORACLE" },
           ]);
@@ -195,7 +196,7 @@ http.route({
         // Handle cancel command - allow users to terminate sessions
         if (trimmedText.toLowerCase() === "cancel" && sessionState && sessionState !== "reading_complete") {
           await ctx.runMutation(internal.users.endSession, { messengerId: senderId });
-          await sendTextMessage(senderId, "✋ *Session cancelled* ✨\n\nYour reading session has been ended. Feel free to start a new one whenever you're ready! 🔮", accessToken, [
+          await sendTextMessage(senderId, `✋ ${toBoldFont("Session cancelled")} ✨\n\nYour reading session has been ended. Feel free to start a new one whenever you're ready! 🔮`, accessToken, [
             QUICK_REPLIES.start,
             QUICK_REPLIES.aboutMe
           ]);
@@ -233,8 +234,8 @@ http.route({
               : null;
 
             const personalizedWelcome = userName
-              ? `🎴 *Perfect, ${userName}!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
-              : `🎴 *Perfect!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
+              ? `🎴 ${toBoldFont(`Perfect, ${userName}!`)} ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n${toBoldFont("You can ask about anything:")} love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
+              : `🎴 ${toBoldFont("Perfect!")} ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n${toBoldFont("You can ask about anything:")} love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
 
             await sendTextMessage(senderId, MESSAGES.birthdateSaved + "\n\n" + personalizedWelcome, accessToken, [
               QUICK_REPLIES.career,
@@ -257,7 +258,7 @@ http.route({
             : null;
 
           const personalizedWelcome = userName
-            ? `🎴 *Welcome back, ${userName}!* ✨\n\nReady for your daily tarot reading? 🔮`
+            ? `🎴 ${toBoldFont(`Welcome back, ${userName}!`)} ✨\n\nReady for your daily tarot reading? 🔮`
             : MESSAGES.readyForReading;
 
           await sendTextMessage(senderId, personalizedWelcome, accessToken, [
@@ -284,7 +285,7 @@ http.route({
 
         // Handle "Quick Question" - provide quick guidance
         if (trimmedText.toLowerCase().includes("quick question") && !isInActiveSession) {
-          await sendTextMessage(senderId, "❓ *Quick mystical guidance awaits...* ✨\n\nShare your brief question or situation, and I'll draw a single card to illuminate your path. 🌙", accessToken, [
+          await sendTextMessage(senderId, `❓ ${toBoldFont("Quick mystical guidance awaits...")} ✨\n\nShare your brief question or situation, and I'll draw a single card to illuminate your path. 🌙`, accessToken, [
             QUICK_REPLIES.start,
             QUICK_REPLIES.aboutMe
           ]);
@@ -293,7 +294,7 @@ http.route({
 
         // Handle "Daily Insight" - provide general daily guidance
         if (trimmedText.toLowerCase().includes("daily insight") && !isInActiveSession) {
-          await sendTextMessage(senderId, "✨ *Daily cosmic wisdom...* 🔮\n\nThe cards have a special message for you today. Ready to receive their guidance?", accessToken, [
+          await sendTextMessage(senderId, `✨ ${toBoldFont("Daily cosmic wisdom...")} 🔮\n\nThe cards have a special message for you today. Ready to receive their guidance?`, accessToken, [
             QUICK_REPLIES.start,
             QUICK_REPLIES.guidance,
             QUICK_REPLIES.aboutMe
@@ -339,8 +340,8 @@ http.route({
               await ctx.runMutation(api.users.startSession, { messengerId: senderId });
 
               const personalizedWelcome = userName
-                ? `🎴 *What question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
-                : `🎴 *Welcome!* ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n*You can ask about anything:* love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
+                ? `🎴 What question would you like to ask the cards today? 🔮\n\n${toBoldFont("You can ask about anything:")} love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`
+                : `🎴 ${toBoldFont("Welcome!")} ✨\n\nWhat question would you like to ask the cards today? 🔮\n\n${toBoldFont("You can ask about anything:")} love, career, personal growth, or whatever is on your heart. 🌙 \nOr, you can simply describe your question or situation.`;
 
               await sendTextMessage(senderId, personalizedWelcome, accessToken, [
                 QUICK_REPLIES.career,
@@ -539,7 +540,7 @@ async function handleGetStartedPostback(ctx: ActionCtx, messengerId: string, acc
     // Create personalized welcome message
     const userName = userProfile?.first_name || userProfile?.name?.split(' ')[0];
     const welcomeMessage = userName
-      ? `🎴 *Welcome, ${userName}!* ✨\n\nThe ancient cards are whispering your name... I'm your mystical tarot guide, here to illuminate your path with cosmic wisdom. 🔮\n\nWhat question calls to your soul today?`
+      ? `🎴 ${toBoldFont(`Welcome, ${userName}!`)} ✨\n\nThe ancient cards are whispering your name... I'm your mystical tarot guide, here to illuminate your path with cosmic wisdom. 🔮\n\nWhat question calls to your soul today?`
       : MESSAGES.getStartedWelcome;
 
     await sendTextMessage(messengerId, welcomeMessage, accessToken, [
@@ -634,7 +635,7 @@ async function handleFollowupQuickReply(ctx: ActionCtx, messengerId: string, pay
 
     case "UPGRADE_PROMPT": {
       // Show upgrade prompt (simplified for now)
-      await sendTextMessage(messengerId, "⭐ *Ready to unlock more mystical insights?*\n\nUpgrade to access unlimited follow-up questions and deeper guidance! 🔮", accessToken);
+      await sendTextMessage(messengerId, `⭐ ${toBoldFont("Ready to unlock more mystical insights?")}\n\nUpgrade to access unlimited follow-up questions and deeper guidance! 🔮`, accessToken);
       break;
     }
 
@@ -698,9 +699,9 @@ async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, ques
         { title: "Upgrade Mystic (₱49)", payload: "UPGRADE_MYSTIC" },
         { title: "Upgrade Oracle (₱99)", payload: "UPGRADE_ORACLE" }
       ];
-      await sendTextMessage(messengerId, "🌟 *You've reached your follow-up limit for this reading* ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!", accessToken, upgradeReplies);
+      await sendTextMessage(messengerId, `🌟 ${toBoldFont("You've reached your follow-up limit for this reading")} ✨\n\nReady to explore more mystical wisdom? Upgrade your experience!`, accessToken, upgradeReplies);
     } else if (errorMessage.includes("Question appears unrelated")) {
-      await sendTextMessage(messengerId, "❌ *I couldn't fully connect that question to your reading* ✨\n\nTry rephrasing or asking about specific cards from your spread.", accessToken);
+      await sendTextMessage(messengerId, `❌ ${toBoldFont("I couldn't fully connect that question to your reading")} ✨\n\nTry rephrasing or asking about specific cards from your spread.`, accessToken);
     } else {
       await sendTextMessage(messengerId, "❌ An error occurred while processing your question. Please try again.", accessToken);
     }

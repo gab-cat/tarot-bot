@@ -1,6 +1,6 @@
 import cardsData from "./tarot-cards.json" assert { type: "json" };
 import { GoogleGenAI } from "@google/genai";
-import { TAROT_SYSTEM_PROMPT, formatCardInfo, getFallbackInterpretation } from "./constants";
+import { TAROT_SYSTEM_PROMPT, formatCardInfo, getFallbackInterpretation, toBoldFont } from "./constants";
 import { api } from "./_generated/api";
 import { type ActionCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
@@ -133,9 +133,9 @@ async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[], use
       );
     }
 
-    const userPrompt = `**${userName ? userName + "'s Question" : "User's Question"}**: ${prompt}
+    const userPrompt = `${toBoldFont(userName ? userName + "'s Question" : "User's Question")}: ${prompt}
 
-**Cards Drawn**:
+${toBoldFont("Cards Drawn")}:
 ${cardInfo}
 
 Please provide a meaningful tarot interpretation connecting these cards${userName ? ` specifically for ${userName}` : ""}.`;
@@ -202,17 +202,20 @@ Key guidelines:
 - Give practical, helpful advice they can actually use
 - **CRITICAL: Make responses intensely personal by mentioning specific scenarios and moments from their situation that make them feel seen and understood**
 - **Always weave in references to concrete moments like "that conversation you mentioned" or "the feeling you described" to make your response feel eerily accurate and tailored just for them**
+- **BE CONFIDENT AND DECISIVE: If they ask yes/no questions, give them yes or no (based on the cards), not "maybe" or "it depends" unless the cards truly show ambiguity**
+- **Trust your intuition to provide clear guidance - the cards rarely stay neutral. When you sense a definite direction from the cards, state it clearly and then justify it**
+- **You have permission to take a strong stance - that's what makes guidance powerful. Don't be afraid to say "Yes, absolutely" or "No, I don't think so" when the cards point clearly in that direction**
 - If they're asking about something unrelated to the reading, gently bring them back: "That's interesting, but let's stick with what the cards showed us. What part of your reading are you curious about?"
 
-Remember: You're having a casual conversation about their tarot cards, not giving a formal reading. Make each response feel like it was written specifically for their unique situation.`;
+Remember: You're having a casual conversation about their tarot cards, not giving a formal reading. Make each response feel like it was written specifically for their unique situation. Be bold and direct - that's what makes your guidance memorable and actionable.`;
 
-    const userPrompt = `**Original Reading Context:**
+    const userPrompt = `${toBoldFont("Original Reading Context")}:
 ${contextSummary}
 
-**Cards from Original Reading:**
+${toBoldFont("Cards from Original Reading")}:
 ${cardSummary}
 
-**Follow-up Question:** ${question}
+${toBoldFont("Follow-up Question")}: ${question}
 
 Provide a brief, conversational response (1-4 sentences) that addresses this specific question while connecting back to the original reading.`;
 

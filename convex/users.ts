@@ -2,6 +2,7 @@ import { mutation, query, internalMutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { type Doc } from "./_generated/dataModel";
+import { toBoldFont } from "./constants";
 
 export const createOrUpdateUser = mutation({
   args: {
@@ -412,7 +413,7 @@ export const generateUserProfileMessage = action({
     const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: args.messengerId });
 
     if (!user) {
-      return "👤 *About You*\n\nI don't have information about you yet. Start a reading to begin your mystical journey! 🔮";
+      return `👤 ${toBoldFont("About You")}\n\nI don't have information about you yet. Start a reading to begin your mystical journey! 🔮`;
     }
 
     const userName = user.firstName || user.lastName
@@ -461,15 +462,15 @@ export const generateUserProfileMessage = action({
 
     // Create upgrade message for free users
     const upgradeMessage = user.userType === "free"
-      ? "\n\n🌟 *Upgrade to Mystic Guide* for 5 daily readings and deeper insights!\n💎 *Upgrade to Oracle Master* for unlimited readings and premium mystical guidance!"
+      ? `\n\n🌟 ${toBoldFont("Upgrade to Mystic Guide")} for 5 daily readings and deeper insights!\n💎 ${toBoldFont("Upgrade to Oracle Master")} for unlimited readings and premium mystical guidance!`
       : "";
 
-    return `👤 *About ${userName}*
- 
-*Spiritual Level:* ${userTypeDisplay}
-*Readings Completed:* ${lastReadings.length}
+    return `👤 ${toBoldFont(`About ${userName}`)}
 
-*Your Mystical Essence:*
+${toBoldFont("Spiritual Level:")} ${userTypeDisplay}
+${toBoldFont("Readings Completed:")} ${lastReadings.length}
+
+${toBoldFont("Your Mystical Essence:")}
 ${description}${upgradeMessage}`;
   },
 });

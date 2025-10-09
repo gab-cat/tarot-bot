@@ -1,7 +1,7 @@
 import { action, query, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { FOLLOWUP_LIMITS, QUICK_REPLIES } from "./constants";
+import { FOLLOWUP_LIMITS, QUICK_REPLIES, toBoldFont } from "./constants";
 import { type Id } from "./_generated/dataModel";
 
 // Types for follow-up functionality
@@ -398,7 +398,7 @@ export const autoEndFollowupSession = action({
           recipient: { id: args.messengerId },
           messaging_type: "RESPONSE",
           message: {
-            text: "⏰ *Your 10-minute follow-up window has ended* ✨\n\nReady for your next mystical journey? 🔮",
+            text: `⏰ ${toBoldFont("Your 10-minute follow-up window has ended")} ✨\n\nReady for your next mystical journey? 🔮`,
             quick_replies: [{
               content_type: "text",
               title: QUICK_REPLIES.start.title,
