@@ -61,6 +61,21 @@ export const getUserById = query({
   },
 });
 
+export const getAllLimitedUsers = query({
+  handler: async (ctx) => {
+    // Return all users who have limited readings (not oracle/pro+)
+    return await ctx.db
+      .query("users")
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("userType"), "oracle"),
+          q.neq(q.field("userType"), "pro+")
+        )
+      )
+      .collect();
+  },
+});
+
 export const getLastReadings = query({
   args: {
     userId: v.id("users"),
@@ -496,6 +511,13 @@ export const upgradeUserType = internalMutation({
       isSubscribed: true,
       lastActiveAt: Date.now(),
     });
+
+    // Cancel any scheduled daily reading notifications since oracle users have unlimited readings
+    if (args.newType === "oracle") {
+      await ctx.runMutation(internal.notifications.cancelScheduledNotification, {
+        messengerId: args.messengerId,
+      });
+    }
   },
 });
 

@@ -18,6 +18,7 @@ import type * as facebookApi from "../facebookApi.js";
 import type * as followups from "../followups.js";
 import type * as http from "../http.js";
 import type * as imageActions from "../imageActions.js";
+import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as readings from "../readings.js";
 import type * as tarot from "../tarot.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   followups: typeof followups;
   http: typeof http;
   imageActions: typeof imageActions;
+  notifications: typeof notifications;
   payments: typeof payments;
   readings: typeof readings;
   tarot: typeof tarot;

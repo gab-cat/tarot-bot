@@ -250,6 +250,42 @@ export const sendSessionEnded = action({
   },
 });
 
+export const sendDailyReadingNotification = action({
+  args: {
+    messengerId: v.string(),
+    message: v.string(),
+  },
+  handler: async (_, args): Promise<boolean> => {
+    const accessToken = process.env.ACCESS_TOKEN;
+    if (!accessToken) {
+      console.error("ACCESS_TOKEN not configured");
+      return false;
+    }
+
+    try {
+      const messageData = {
+        recipient: { id: args.messengerId },
+        message: {
+          text: args.message,
+          quick_replies: [
+            {
+              content_type: "text",
+              title: "🔮 Start My Reading",
+              payload: "Start",
+            },
+          ],
+        },
+      } as FacebookMessageData;
+
+      const result = await sendMessageToFacebook(messageData, accessToken);
+      return result;
+    } catch (error) {
+      console.error("Error sending daily reading notification:", error);
+      return false;
+    }
+  },
+});
+
 // Helper functions
 function buildFollowupQuickReplies(remainingQuestions: number): FacebookQuickReply[] {
   const quickReplies: FacebookQuickReply[] = [];

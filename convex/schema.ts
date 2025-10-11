@@ -17,6 +17,7 @@ export default defineSchema({
     descriptionLastUpdated: v.optional(v.number()), // Unix timestamp when description was last updated
     followupSessionsToday: v.optional(v.number()), // Count of follow-up sessions used today
     lastFollowupAt: v.optional(v.number()), // Unix timestamp of last follow-up interaction
+    scheduledNotificationId: v.optional(v.id("_scheduled_functions")), // ID of scheduled notification job for daily reading availability
   }).index("by_messenger_id", ["messengerId"]),
 
   readings: defineTable({
