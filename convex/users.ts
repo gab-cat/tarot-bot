@@ -132,6 +132,12 @@ export const canReadToday = query({
     // Oracle/pro+ users have unlimited readings
     if (user.userType === "oracle" || user.userType === "pro+") return true;
 
+    // Check for active promotional period
+    const promoEligible = await ctx.runQuery(api.promotions.isUserEligibleForPromo, {
+      messengerId: args.messengerId
+    });
+    if (promoEligible) return true;
+
     // Count today's readings
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();

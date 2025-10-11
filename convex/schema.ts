@@ -84,4 +84,15 @@ export default defineSchema({
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
   }).index("by_external_id", ["externalId"]),
+
+  promotionalPeriods: defineTable({
+    startDate: v.number(),           // Unix timestamp
+    endDate: v.number(),             // Unix timestamp
+    targetedUserIds: v.optional(v.array(v.string())),  // Messenger IDs
+    targetedUserTypes: v.optional(v.array(v.string())), // ["free", "mystic", etc.]
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    deactivatedAt: v.optional(v.number()),
+    scheduledEndJobId: v.optional(v.string()),
+  }).index("by_active", ["isActive"]),
 });

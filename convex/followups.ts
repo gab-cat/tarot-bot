@@ -1,4 +1,4 @@
-import { action, query, type ActionCtx } from "./_generated/server";
+import { action, query, internalQuery, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { FOLLOWUP_LIMITS, QUICK_REPLIES, toBoldFont } from "./constants";
@@ -81,7 +81,11 @@ export const startFollowupSession = action({
     }
 
     // Check user subscription limits
-    const hasFollowupsAvailable = validateFollowupLimit(user.userType, user.followupSessionsToday || 0);
+    const hasFollowupsAvailable = await ctx.runQuery(internal.followups.validateFollowupLimit, {
+      messengerId: args.messengerId,
+      userType: user.userType,
+      usedCount: user.followupSessionsToday || 0,
+    });
     if (!hasFollowupsAvailable) {
       throw new Error("User has reached daily follow-up session limit");
     }
@@ -267,10 +271,24 @@ export const getConversationHistory = query({
 });
 
 // Utility functions for conversation management
-export function validateFollowupLimit(userType: string, usedCount: number): boolean {
-  const limit = FOLLOWUP_LIMITS[userType as keyof typeof FOLLOWUP_LIMITS] || 0;
-  return usedCount < limit;
-}
+export const validateFollowupLimit = internalQuery({
+  args: {
+    messengerId: v.string(),
+    userType: v.string(),
+    usedCount: v.number(),
+  },
+  handler: async (ctx, args): Promise<boolean> => {
+    // Check promotional period first
+    const promoEligible = await ctx.runQuery(api.promotions.isUserEligibleForPromo, {
+      messengerId: args.messengerId
+    });
+    if (promoEligible) return true;
+
+    // Existing logic
+    const limit = FOLLOWUP_LIMITS[args.userType as keyof typeof FOLLOWUP_LIMITS] || 0;
+    return args.usedCount < limit;
+  },
+});
 
 export function getRemainingQuestions(userType: string, usedCount: number): number {
   const limit = FOLLOWUP_LIMITS[userType as keyof typeof FOLLOWUP_LIMITS] || 0;

@@ -20,6 +20,7 @@ import type * as http from "../http.js";
 import type * as imageActions from "../imageActions.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
+import type * as promotions from "../promotions.js";
 import type * as readings from "../readings.js";
 import type * as tarot from "../tarot.js";
 import type * as tarotCardImages from "../tarotCardImages.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   imageActions: typeof imageActions;
   notifications: typeof notifications;
   payments: typeof payments;
+  promotions: typeof promotions;
   readings: typeof readings;
   tarot: typeof tarot;
   tarotCardImages: typeof tarotCardImages;
