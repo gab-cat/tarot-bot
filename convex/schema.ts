@@ -18,6 +18,9 @@ export default defineSchema({
     followupSessionsToday: v.optional(v.number()), // Count of follow-up sessions used today
     lastFollowupAt: v.optional(v.number()), // Unix timestamp of last follow-up interaction
     scheduledNotificationId: v.optional(v.id("_scheduled_functions")), // ID of scheduled notification job for daily reading availability
+    subscriptionStartAt: v.optional(v.number()), // Unix timestamp when subscription started
+    subscriptionExpiresAt: v.optional(v.number()), // Unix timestamp when subscription expires
+    scheduledDowngradeId: v.optional(v.id("_scheduled_functions")), // ID of scheduled downgrade job
   }).index("by_messenger_id", ["messengerId"]),
 
   readings: defineTable({

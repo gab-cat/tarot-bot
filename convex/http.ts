@@ -174,10 +174,22 @@ http.route({
         const isInActiveSession = sessionState && activeSessionStates.includes(sessionState);
 
         if (trimmedText.toLowerCase().includes("upgrade") && !isInActiveSession) {
-          await sendTextMessage(senderId, `⭐ ${toBoldFont("Ready to unlock premium features?")} ✨\n\nChoose your upgrade path:`, accessToken, [
-            { title: "Mystic Guide (₱49) - 5 daily readings", payload: "UPGRADE_MYSTIC" },
-            { title: "Oracle Master (₱99) - Unlimited access", payload: "UPGRADE_ORACLE" },
-          ]);
+          const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: senderId });
+          if (user?.userType !== "free") {
+            // Show current subscription details instead of upgrade options
+            const profileMessage = await ctx.runAction(api.users.generateUserProfileMessage, {
+              messengerId: senderId,
+            });
+            await sendTextMessage(senderId, `${profileMessage}\n\nℹ️ ${toBoldFont("Upgrade Options")}\nYour subscription is active. You can upgrade again once it expires.`, accessToken, [
+              { title: "About Me", payload: "About Me" },
+              { title: "🎴 Start Reading", payload: "Start" }
+            ]);
+          } else {
+            await sendTextMessage(senderId, `⭐ ${toBoldFont("Ready to unlock premium features?")} ✨\n\nChoose your upgrade path:`, accessToken, [
+              { title: "Mystic Guide (₱49) - 5 daily readings", payload: "UPGRADE_MYSTIC" },
+              { title: "Oracle Master (₱99) - Unlimited access", payload: "UPGRADE_ORACLE" },
+            ]);
+          }
           continue;
         }
 
@@ -787,6 +799,12 @@ http.route({
         user = await ctx.runQuery(api.users.getUserById, { userId });
       }
 
+      // Business logic: Only allow checkout if user is on free tier
+      // Prevents re-upgrading while subscription is active
+      if (!user || user.userType !== "free") {
+        return new Response("Upgrades only available for free tier users", { status: 400 });
+      }
+
       const now = Date.now();
       const externalId = `tb-${plan}-${messengerId}-${now}`;
       const amount = plan === "mystic" ? 49 : 99;
@@ -861,6 +879,8 @@ http.route({
 });
 
 // POST /xendit/webhook
+// Security: Validates Xendit callback token to prevent unauthorized webhook calls
+// Idempotency: Uses payment status check to avoid double-processing payments
 http.route({
   path: "/xendit/webhook",
   method: "POST",
@@ -882,6 +902,7 @@ http.route({
         const externalId = event.external_id;
         const payment = await ctx.runQuery(api.payments.getPaymentByExternalId, { externalId });
 
+        // Idempotency check: only process if payment is still pending
         if (payment && payment.status === "PENDING") {
           // Update payment
           await ctx.runMutation(internal.payments.updatePaymentStatus, {
@@ -891,8 +912,8 @@ http.route({
             paidAt: event.paid_at ? new Date(event.paid_at).getTime() : Date.now(),
           });
 
-          // Upgrade user
-          await ctx.runMutation(internal.users.upgradeUserType, {
+          // Activate subscription
+          await ctx.runMutation(internal.users.activateSubscription, {
             messengerId: payment.messengerId,
             newType: payment.plan,
           });

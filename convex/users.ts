@@ -441,6 +441,10 @@ export const generateUserProfileMessage = action({
       ? [user.firstName, user.lastName].filter(Boolean).join(" ")
       : "Mystical Seeker";
 
+    // Check if we need to regenerate description (every 15 days)
+    const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
     // Get user type display name
     const userTypeDisplayMap: Record<string, string> = {
       free: "Free Explorer",
@@ -451,15 +455,20 @@ export const generateUserProfileMessage = action({
     };
     const userTypeDisplay = userTypeDisplayMap[user.userType] || "Free Explorer";
 
+    // Format subscription details for paid users
+    let subscriptionDetails = "";
+    if (user.userType !== "free" && user.subscriptionStartAt && user.subscriptionExpiresAt) {
+      const startDate = new Date(user.subscriptionStartAt).toLocaleDateString();
+      const expiryDate = new Date(user.subscriptionExpiresAt).toLocaleDateString();
+      const daysRemaining = Math.ceil((user.subscriptionExpiresAt - now) / (24 * 60 * 60 * 1000));
+      subscriptionDetails = `\n\n${toBoldFont("Subscription Details:")}\nStarted: ${startDate}\nExpires: ${expiryDate}\nDays remaining: ${daysRemaining}`;
+    }
+
     // Get last 5 readings
     const lastReadings = await ctx.runQuery(api.users.getLastReadings, {
       userId: user._id,
       limit: 5
     });
-
-    // Check if we need to regenerate description (every 15 days)
-    const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
     const needsNewDescription = !user.description ||
                                !user.descriptionLastUpdated ||
                                (now - user.descriptionLastUpdated) > FIFTEEN_DAYS_MS;
@@ -481,7 +490,7 @@ export const generateUserProfileMessage = action({
       description = "A curious soul beginning their journey into the mystical arts, ready to discover the wisdom the cards hold.";
     }
 
-    // Create upgrade message for free users
+    // Create upgrade message only for free users
     const upgradeMessage = user.userType === "free"
       ? `\n\n🌟 ${toBoldFont("Upgrade to Mystic Guide")} for 5 daily readings and deeper insights!\n💎 ${toBoldFont("Upgrade to Oracle Master")} for unlimited readings and premium mystical guidance!`
       : "";
@@ -489,14 +498,14 @@ export const generateUserProfileMessage = action({
     return `👤 ${toBoldFont(`About ${userName}`)}
 
 ${toBoldFont("Spiritual Level:")} ${userTypeDisplay}
-${toBoldFont("Readings Completed:")} ${lastReadings.length}
+${toBoldFont("Readings Completed:")} ${lastReadings.length}${subscriptionDetails}
 
 ${toBoldFont("Your Mystical Essence:")}
 ${description}${upgradeMessage}`;
   },
 });
 
-export const upgradeUserType = internalMutation({
+export const activateSubscription = internalMutation({
   args: {
     messengerId: v.string(),
     newType: v.union(v.literal("mystic"), v.literal("oracle")),
@@ -512,10 +521,31 @@ export const upgradeUserType = internalMutation({
       return;
     }
 
+    // Business logic: Only allow activation if user is currently free
+    // Prevents re-activation while subscription is active
+    if (user.userType !== "free") {
+      console.log(`User ${args.messengerId} is not free tier (${user.userType}), skipping subscription activation`);
+      return;
+    }
+
+    const now = Date.now();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = now + thirtyDaysMs;
+
+    // Schedule downgrade job
+    const scheduledJobId = await ctx.scheduler.runAt(
+      expiresAt,
+      internal.users.downgradeToFree,
+      { messengerId: args.messengerId }
+    );
+
     await ctx.db.patch(user._id, {
       userType: args.newType,
       isSubscribed: true,
-      lastActiveAt: Date.now(),
+      lastActiveAt: now,
+      subscriptionStartAt: now,
+      subscriptionExpiresAt: expiresAt,
+      scheduledDowngradeId: scheduledJobId,
     });
 
     // Update any active readings to reflect the new subscription tier
@@ -542,6 +572,58 @@ export const upgradeUserType = internalMutation({
     if (args.newType === "oracle") {
       await ctx.runMutation(internal.notifications.cancelScheduledNotification, {
         messengerId: args.messengerId,
+      });
+    }
+  },
+});
+
+export const downgradeToFree = internalMutation({
+  args: {
+    messengerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
+      .first();
+
+    if (!user) {
+      console.error(`User not found for messengerId: ${args.messengerId}`);
+      return;
+    }
+
+    // Clear scheduled downgrade job if it exists
+    if (user.scheduledDowngradeId) {
+      await ctx.scheduler.cancel(user.scheduledDowngradeId);
+    }
+
+    await ctx.db.patch(user._id, {
+      userType: "free",
+      isSubscribed: false,
+      lastActiveAt: Date.now(),
+      // Clear subscription fields
+      subscriptionStartAt: undefined,
+      subscriptionExpiresAt: undefined,
+      scheduledDowngradeId: undefined,
+    });
+
+    // Update any active readings to free tier
+    const activeReadings = await ctx.db
+      .query("readings")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("sessionState"), "active"),
+          q.eq(q.field("sessionState"), "followup_available"),
+          q.eq(q.field("sessionState"), "followup_in_progress")
+        )
+      )
+      .collect();
+
+    for (const reading of activeReadings) {
+      await ctx.runMutation(internal.readings.updateSessionState, {
+        readingId: reading._id,
+        subscriptionTier: "free",
       });
     }
   },
