@@ -518,6 +518,26 @@ export const upgradeUserType = internalMutation({
       lastActiveAt: Date.now(),
     });
 
+    // Update any active readings to reflect the new subscription tier
+    const activeReadings = await ctx.db
+      .query("readings")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("sessionState"), "active"),
+          q.eq(q.field("sessionState"), "followup_available"),
+          q.eq(q.field("sessionState"), "followup_in_progress")
+        )
+      )
+      .collect();
+
+    for (const reading of activeReadings) {
+      await ctx.runMutation(internal.readings.updateSessionState, {
+        readingId: reading._id,
+        subscriptionTier: args.newType,
+      });
+    }
+
     // Cancel any scheduled daily reading notifications since oracle users have unlimited readings
     if (args.newType === "oracle") {
       await ctx.runMutation(internal.notifications.cancelScheduledNotification, {
