@@ -313,6 +313,30 @@ Set the same environment variables in your Convex dashboard:
 - `XENDIT_SECRET_KEY`
 - `XENDIT_CALLBACK_TOKEN`
 - `APP_BASE_URL`
+- `ADMIN_SECRET` (for running admin operations like migrations)
+
+## 🔄 Subscription Migration
+
+After deploying the subscription refactor, run the migration to backfill existing paid users with subscription data:
+
+```bash
+# Set your admin secret in environment
+export ADMIN_SECRET=your-admin-secret
+
+# Run migration via HTTP endpoint
+curl -X POST https://your-deployment.convex.cloud/admin/migrate-subscriptions \
+  -H "Authorization: Bearer $ADMIN_SECRET" \
+  -H "Content-Type: application/json"
+```
+
+This migration will:
+
+- Find all users with `userType: "mystic"` or `"oracle"` without subscription data
+- Set `subscriptionStartAt` to current time
+- Set `subscriptionExpiresAt` to 30 days from now
+- Schedule automatic downgrade jobs for all migrated users
+
+The migration is idempotent and can be run multiple times safely.
 
 ## 🧪 Development
 

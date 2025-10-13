@@ -630,6 +630,68 @@ export const downgradeToFree = internalMutation({
 });
 
 /**
+ * MIGRATION: Backfill existing paid users with subscription data
+ * Sets subscriptionStartAt to now and subscriptionExpiresAt to 30 days from now
+ * Schedules downgrade jobs for existing mystic/oracle users
+ * Run this once after deploying the subscription refactor
+ */
+export const migrateExistingSubscriptions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    console.log("Starting migration of existing paid subscriptions...");
+
+    // Find all users who are currently mystic or oracle but don't have subscription data
+    const usersToMigrate = await ctx.db
+      .query("users")
+      .filter((q) =>
+        q.and(
+          q.or(q.eq(q.field("userType"), "mystic"), q.eq(q.field("userType"), "oracle")),
+          q.or(
+            q.eq(q.field("subscriptionStartAt"), undefined),
+            q.eq(q.field("subscriptionExpiresAt"), undefined)
+          )
+        )
+      )
+      .collect();
+
+    console.log(`Found ${usersToMigrate.length} users to migrate`);
+
+    const now = Date.now();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = now + thirtyDaysMs;
+
+    let migratedCount = 0;
+
+    for (const user of usersToMigrate) {
+      try {
+        // Schedule downgrade job
+        const scheduledJobId = await ctx.scheduler.runAt(
+          expiresAt,
+          internal.users.downgradeToFree,
+          { messengerId: user.messengerId }
+        );
+
+        // Update user with subscription data
+        await ctx.db.patch(user._id, {
+          subscriptionStartAt: now,
+          subscriptionExpiresAt: expiresAt,
+          scheduledDowngradeId: scheduledJobId,
+          lastActiveAt: now,
+        });
+
+        console.log(`Migrated user ${user.messengerId} (${user.userType})`);
+        migratedCount++;
+      } catch (error) {
+        console.error(`Failed to migrate user ${user.messengerId}:`, error);
+      }
+    }
+
+    console.log(`Migration completed. Migrated ${migratedCount} users.`);
+    return { migratedCount, totalFound: usersToMigrate.length };
+  },
+});
+
+/**
  * INTERNAL: Migrate existing users without names to fetch and save their profile info
  * This function can be run manually or as a background job to backfill user data
  */
