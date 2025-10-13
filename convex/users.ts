@@ -138,26 +138,42 @@ export const canReadToday = query({
     });
     if (promoEligible) return true;
 
-    // Count today's readings
+    // Get recent readings to check timing
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
-
-    const todaysReadingCount = await ctx.db
-      .query("readings")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .filter((q) => q.gte(q.field("createdAt"), startOfDay) && q.lt(q.field("createdAt"), endOfDay))
-      .collect();
 
     // Check limits based on user type
     if (user.userType === "free") {
-      return todaysReadingCount.length < 1;
+      // For free users, check their last reading
+      const lastReading = await ctx.db
+        .query("readings")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .order("desc")
+        .take(1);
+
+      // If no readings or last reading wasn't today, they can read
+      return lastReading.length === 0 || lastReading[0].createdAt < startOfDay;
     } else if (user.userType === "mystic" || user.userType === "pro") {
-      return todaysReadingCount.length < 5;
+      // For mystic/pro users, check their last 5 readings
+      const lastFiveReadings = await ctx.db
+        .query("readings")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .order("desc")
+        .take(5);
+
+      // Count how many readings were done today
+      const todaysReadings = lastFiveReadings.filter(reading => reading.createdAt >= startOfDay);
+      return todaysReadings.length < 5;
     }
 
     // Default to free limits if userType is invalid
-    return todaysReadingCount.length < 1;
+    const lastReading = await ctx.db
+      .query("readings")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .take(1);
+
+    return lastReading.length === 0 || lastReading[0].createdAt < startOfDay;
   },
 });
 

@@ -4,6 +4,7 @@ import { drawThreeRandomCards, type DrawnCard } from "./tarot";
 import { api, internal } from "./_generated/api";
 import { type Doc } from "./_generated/dataModel";
 import { toBoldFont } from "./constants";
+import { Invoice } from "./xenditClient";
 
 
 // Facebook webhook types
@@ -814,41 +815,21 @@ http.route({
       const successRedirect = `${redirectUrl}/xendit/success?external_id=${externalId}`;
       const failureRedirect = `${redirectUrl}/xendit/failure?external_id=${externalId}`;
 
-      const secretKey = process.env.XENDIT_SECRET_KEY;
-      if (!secretKey) {
-        console.error("XENDIT_SECRET_KEY not set");
-        return new Response("Server configuration error", { status: 500 });
-      }
-
-      const authHeader = `Basic ${btoa(`${secretKey}:`)}`;
-
-      const invoiceResponse = await fetch("https://api.xendit.co/v2/invoices", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": authHeader,
-        },
-        body: JSON.stringify({
-          external_id: externalId,
+      const created = await Invoice.createInvoice({
+        data: {
+          externalId: externalId,
           amount,
           description,
           currency,
-          success_redirect_url: successRedirect,
-          failure_redirect_url: failureRedirect,
-        }),
+          successRedirectUrl: successRedirect,
+          failureRedirectUrl: failureRedirect,
+        }
       });
 
-      if (!invoiceResponse.ok) {
-        const errorText = await invoiceResponse.text();
-        console.error("Xendit invoice creation failed:", invoiceResponse.status, errorText);
-        return new Response("Payment creation failed", { status: 500 });
-      }
-
-      const invoiceData = await invoiceResponse.json();
-      const invoiceUrl = invoiceData.invoice_url;
+      const invoiceUrl = created.invoiceUrl;
 
       if (!invoiceUrl) {
-        console.error("No invoice_url in Xendit response");
+        console.error("No invoiceUrl in Xendit response");
         return new Response("Payment creation failed", { status: 500 });
       }
 

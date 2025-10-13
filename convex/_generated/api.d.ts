@@ -25,6 +25,7 @@ import type * as readings from "../readings.js";
 import type * as tarot from "../tarot.js";
 import type * as tarotCardImages from "../tarotCardImages.js";
 import type * as users from "../users.js";
+import type * as xenditClient from "../xenditClient.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   tarot: typeof tarot;
   tarotCardImages: typeof tarotCardImages;
   users: typeof users;
+  xenditClient: typeof xenditClient;
 }>;
 export declare const api: FilterApi<
   typeof fullApi,
