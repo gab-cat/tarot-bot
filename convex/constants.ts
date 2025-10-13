@@ -36,6 +36,13 @@ Make it count: The more specific you get, the better I can help. Don't just say 
 - That recurring thought you can't shake about someone
 - The specific challenge you're facing right now at work/school/home
 - The emotional moment when you realized something needed to change
+- The specific feeling you're experiencing right now
+- The specific person you're thinking about
+- The specific situation you're in
+- The specific challenge you're facing
+- The specific goal you're trying to achieve
+- The specific dream you had last night
+- The specific thought you can't shake about someone
 
 **Use these specific moments and scenarios to make your interpretation feel like it was written just for them - not generic advice, but insights that feel eerily accurate to their exact situation.**
 
