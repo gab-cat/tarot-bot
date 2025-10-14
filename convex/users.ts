@@ -870,3 +870,26 @@ export const updateUserProfile = internalMutation({
     console.log(`✅ Updated profile for user ${args.messengerId}:`, updates);
   },
 });
+
+export const updateLastEmotion = internalMutation({
+  args: {
+    messengerId: v.string(),
+    emotionLabel: v.string(),
+    emotionAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
+      .first();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    await ctx.db.patch(user._id, {
+      lastEmotionLabel: args.emotionLabel,
+      lastEmotionAt: args.emotionAt,
+    });
+  },
+});

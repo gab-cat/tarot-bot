@@ -1,9 +1,9 @@
 import cardsData from "./tarot-cards.json" assert { type: "json" };
-import { GoogleGenAI } from "@google/genai";
-import { TAROT_SYSTEM_PROMPT, formatCardInfo, getFallbackInterpretation, toBoldFont } from "./constants";
+import { formatCardInfo, getFallbackInterpretation, toBoldFont } from "./constants";
 import { api } from "./_generated/api";
 import { type ActionCtx } from "./_generated/server";
 import { type Doc, type Id } from "./_generated/dataModel";
+import { getInterpretationModel } from "./ai/factory";
 
 export type TarotCardData = {
   type: string;
@@ -47,7 +47,14 @@ export type ConversationEntry = {
   isValidQuestion?: boolean;
 };
 
-export async function drawThreeRandomCards(prompt: string, userName?: string, userBirthdate?: string): Promise<{ cards: DrawnCard[]; interpretation: string }> {
+export async function drawThreeRandomCards(
+  ctx: ActionCtx,
+  prompt: string,
+  userName?: string,
+  userBirthdate?: string,
+  emotionTone?: string,
+  memoryContext?: string
+): Promise<{ cards: DrawnCard[]; interpretation: string }> {
   const positions: Array<DrawnCard["position"]> = ["past", "present", "future"];
 
   const indices = sampleUniqueIndices(cardsData.cards.length, 3);
@@ -69,7 +76,7 @@ export async function drawThreeRandomCards(prompt: string, userName?: string, us
     };
   });
 
-  const interpretation = await buildGeminiInterpretation(prompt, cards, userName, userBirthdate);
+  const interpretation = await buildGeminiInterpretation(ctx, prompt, cards, userName, userBirthdate, emotionTone, memoryContext);
   return { cards, interpretation };
 }
 
@@ -86,86 +93,44 @@ function sampleUniqueIndices(maxExclusive: number, count: number): number[] {
   return result;
 }
 
-async function buildGeminiInterpretation(prompt: string, cards: DrawnCard[], userName?: string, userBirthdate?: string): Promise<string> {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    console.warn("GEMINI_API_KEY not found, falling back to simple interpretation");
-    return buildFallbackInterpretation(prompt, cards);
-  }
-
+async function buildGeminiInterpretation(
+  ctx: ActionCtx,
+  prompt: string,
+  cards: DrawnCard[],
+  userName?: string,
+  userBirthdate?: string,
+  emotionTone?: string,
+  memoryContext?: string
+): Promise<string> {
   try {
-    // The client gets the API key from the environment variable `GEMINI_API_KEY`.
-    const ai = new GoogleGenAI({
-        apiKey: geminiApiKey,
+    // Use the Convex action for interpretation generation
+    return await ctx.runAction(api.ai.interpretationModel.generateInterpretation, {
+      prompt,
+      cards: cards.map(card => ({
+        name: card.name,
+        meaning: card.meaning,
+        position: card.position,
+        reversed: card.reversed,
+        description: card.description,
+        cardType: card.cardType,
+      })),
+      userName,
+      userBirthdate,
+      memoryContext,
+      emotionTone,
     });
-
-    const cardInfo = cards.map((card) => formatCardInfo(card)).join("\n\n");
-
-    // Personalize the system prompt with user name, current date, and birthdate if available
-    let systemPrompt = TAROT_SYSTEM_PROMPT;
-
-    // Replace current date placeholder with today's date
-    const today = new Date();
-    const currentDate = today.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    systemPrompt = systemPrompt.replace('{current_date}', currentDate);
-
-    // Replace birthdate placeholder if available
-    if (userBirthdate) {
-      systemPrompt = systemPrompt.replace('{user_birthdate}', userBirthdate);
-    } else {
-      // If no birthdate, remove the birthdate instruction entirely
-      systemPrompt = systemPrompt.replace(/\n\nUSER BIRTHDATE:.*?\./, '');
-    }
-
-    if (userName) {
-      systemPrompt = systemPrompt.replace(
-        "Picture this - you're curled up with your coffee",
-        `Picture this - ${userName} is curled up with their coffee`
-      );
-      systemPrompt = systemPrompt.replace(
-        "Think of me as that friend who always knows what to say",
-        `Think of me as that friend who always knows what to say to ${userName}`
-      );
-    }
-
-    const userPrompt = `${toBoldFont(userName ? userName + "'s Question" : "User's Question")}: ${prompt}
-
-${toBoldFont("Cards Drawn")}:
-${cardInfo}
-
-Please provide a meaningful tarot interpretation connecting these cards${userName ? ` specifically for ${userName}` : ""}.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: systemPrompt + "\n\n" + userPrompt,
-    });
-
-    return response.text || buildFallbackInterpretation(prompt, cards);
-
   } catch (error) {
-    console.error("Gemini API error:", error);
-    throw new Error("AI interpretation temporarily unavailable. Please try your question again.");
+    console.error("Interpretation action error:", error);
+    return buildFallbackInterpretation(prompt, cards);
   }
 }
 
 export async function generateFollowupResponse(
   ctx: ActionCtx,
   question: string,
-  readingId: Id<"readings">
+  readingId: Id<"readings">,
+  emotionTone?: string
 ): Promise<string> {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    console.warn("GEMINI_API_KEY not found, using fallback response");
-    // Get reading for fallback response (not used in fallback)
-    await ctx.runQuery(api.readings.getById, { readingId });
-    return getFallbackFollowupResponse(question);
-  }
-
   try {
     // Get the reading data from database
     const reading = await ctx.runQuery(api.readings.getById, { readingId });
@@ -173,11 +138,10 @@ export async function generateFollowupResponse(
       throw new Error("Reading not found");
     }
 
-    const ai = new GoogleGenAI({
-      apiKey: geminiApiKey,
-    });
+    // Use the modular interpretation model for follow-ups
+    const model = getInterpretationModel();
 
-    // Build conversation context from history (get the initial reading interpretation)
+    // Build conversation context from history
     const initialReadingContent = reading.interpretation || "";
     const recentFollowupResponses = (reading.conversationHistory || [])
       .filter((entry) => entry.type === "followup_response")
@@ -191,25 +155,8 @@ export async function generateFollowupResponse(
     // Create card context summary
     const cardSummary = reading.cards.map((card: StoredCard) => formatCardInfo(card)).join("\n\n");
 
-    const systemPrompt = `You are a friendly tarot guide helping someone understand their reading better. Keep your responses simple, warm, and conversational - like chatting with a good friend over coffee. Limit yourself to 1-4 sentences.
-
-Key guidelines:
-- Keep it to 1-4 sentences maximum
-- Talk like a friend - use "hey", "you know", "I get it", etc.
-- Connect back to their original cards when it makes sense
-- Answer their specific question directly but simply
-- Don't use fancy tarot jargon - explain things in everyday language
-- Give practical, helpful advice they can actually use
-- **CRITICAL: Make responses intensely personal by mentioning specific scenarios and moments from their situation that make them feel seen and understood**
-- **Always weave in references to concrete moments like "that conversation you mentioned" or "the feeling you described" to make your response feel eerily accurate and tailored just for them**
-- **BE CONFIDENT AND DECISIVE: If they ask yes/no questions, give them yes or no (based on the cards), not "maybe" or "it depends" unless the cards truly show ambiguity**
-- **Trust your intuition to provide clear guidance - the cards rarely stay neutral. When you sense a definite direction from the cards, state it clearly and then justify it**
-- **You have permission to take a strong stance - that's what makes guidance powerful. Don't be afraid to say "Yes, absolutely" or "No, I don't think so" when the cards point clearly in that direction**
-- If they're asking about something unrelated to the reading, gently bring them back: "That's interesting, but let's stick with what the cards showed us. What part of your reading are you curious about?"
-
-Remember: You're having a casual conversation about their tarot cards, not giving a formal reading. Make each response feel like it was written specifically for their unique situation. Be bold and direct - that's what makes your guidance memorable and actionable.`;
-
-    const userPrompt = `${toBoldFont("Original Reading Context")}:
+    // Create a specialized prompt for follow-up responses
+    const followupPrompt = `${toBoldFont("Original Reading Context")}:
 ${contextSummary}
 
 ${toBoldFont("Cards from Original Reading")}:
@@ -219,12 +166,16 @@ ${toBoldFont("Follow-up Question")}: ${question}
 
 Provide a brief, conversational response (1-4 sentences) that addresses this specific question while connecting back to the original reading.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      contents: systemPrompt + "\n\n" + userPrompt,
-    });
+    const followupRequest = {
+      prompt: followupPrompt,
+      cards: reading.cards, // Include original cards for context
+      userName: undefined, // Could be extracted from reading if stored
+      userBirthdate: undefined,
+      memoryContext: undefined, // Follow-ups already have conversation context
+      emotionTone, // Use the provided emotion tone
+    };
 
-    const aiResponse = response.text || getFallbackFollowupResponse(question);
+    const aiResponse = await model.generateInterpretation(followupRequest, ctx);
 
     // Validate response length (rough sentence count check)
     const sentenceCount = (aiResponse.match(/[.!?]+/g) || []).length;
@@ -234,45 +185,43 @@ Provide a brief, conversational response (1-4 sentences) that addresses this spe
       return sentences.slice(0, 4).join('. ').trim() + '.';
     }
 
-    return aiResponse;
+    return aiResponse || getFallbackFollowupResponse(question);
 
   } catch (error) {
     console.error("Error generating follow-up response:", error);
-    // Get reading for fallback response (not used in fallback)
-    await ctx.runQuery(api.readings.getById, { readingId });
     return getFallbackFollowupResponse(question);
   }
 }
 
 export async function generateUserDescription(readings: Doc<"readings">[], userName?: string): Promise<string> {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    return "A curious soul seeking guidance through the mystical arts.";
-  }
-
   try {
-    const ai = new GoogleGenAI({
-      apiKey: geminiApiKey,
-    });
+    // Use the modular interpretation model for user descriptions
+    const model = getInterpretationModel();
 
     const readingsSummary = readings.map((reading, index) =>
       `Reading ${index + 1}: Question: "${reading.question || 'General guidance'}"\nCards: ${reading.cards?.map((card: StoredCard) => `${card.name}${card.reversed ? ' (Reversed)' : ''}`).join(', ') || 'Unknown'}\nInterpretation: ${reading.interpretation?.substring(0, 200) || 'No interpretation'}...`
     ).join('\n\n');
 
-    const systemPrompt = `You are a mystical tarot reader creating a brief, insightful personality description based on someone's recent tarot readings. Write 2-3 sentences that capture their essence, current journey, and spiritual inclinations. Focus on patterns in their questions and card themes. Keep it poetic and encouraging.`;
-
-    const userPrompt = `Based on these recent tarot readings${userName ? ` for ${userName}` : ''}, create a brief 2-3 sentence mystical description of this person's personality and current life journey:
+    const descriptionPrompt = `Based on these recent tarot readings${userName ? ` for ${userName}` : ''}, create a brief 2-3 sentence mystical description of this person's personality and current life journey:
 
 ${readingsSummary}
 
 Create a mystical, insightful description that captures their essence:`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: systemPrompt + "\n\n" + userPrompt,
-    });
+    const descriptionRequest = {
+      prompt: descriptionPrompt,
+      cards: [], // No specific cards for user description
+      userName,
+      userBirthdate: undefined,
+      memoryContext: undefined,
+      emotionTone: undefined,
+    };
 
-    return response.text || "A curious soul on a mystical journey of self-discovery.";
+    // Create a mock ActionCtx for the interpretation model
+    const mockCtx = {} as ActionCtx;
+
+    const response = await model.generateInterpretation(descriptionRequest, mockCtx);
+    return response || "A curious soul on a mystical journey of self-discovery.";
 
   } catch (error) {
     console.error("Error generating user description:", error);

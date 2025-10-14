@@ -2,9 +2,10 @@ import { httpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { drawThreeRandomCards, type DrawnCard } from "./tarot";
 import { api, internal } from "./_generated/api";
-import { type Doc } from "./_generated/dataModel";
+import { Id, type Doc } from "./_generated/dataModel";
 import { toBoldFont } from "./constants";
 import { Invoice } from "./xenditClient";
+import { toneGuidelines } from "./ai/emotionalAnalysis";
 
 
 // Facebook webhook types
@@ -409,10 +410,48 @@ http.route({
             ? [existingUser.firstName, existingUser.lastName].filter(Boolean).join(" ")
             : undefined;
 
-          // Perform the reading
+          // Analyze user's emotional state from their question
+          let emotionResult = null;
+          try {
+            emotionResult = await ctx.runAction(api.ai.emotionalAnalysis.analyzeEmotion, {
+              text: trimmedText,
+            });
+            // Update user's last emotion
+            if (emotionResult) {
+              await ctx.runMutation(internal.users.updateLastEmotion, {
+                messengerId: senderId,
+                emotionLabel: emotionResult.label,
+                emotionAt: Date.now(),
+              });
+            }
+          } catch (error) {
+            console.warn("Failed to analyze emotion:", error);
+          }
+
+          // Build reading memory context for RAG
+          let memoryContext = "";
+          try {
+            const ragResult = await ctx.runAction(api.rag.buildReadingMemoryContext, {
+              userId: existingUser?._id as Id<"users">,
+              currentQuestion: trimmedText,
+              k: 3,
+            });
+            memoryContext = ragResult || "";
+          } catch (error) {
+            console.warn("Failed to build memory context:", error);
+          }
+
+          // Perform the reading with emotion and memory context
           let cards: DrawnCard[], interpretation: string;
           try {
-            const result = await drawThreeRandomCards(trimmedText, existingUserName, existingUser?.birthdate);
+            const result = await drawThreeRandomCards(
+              ctx,
+              trimmedText,
+              existingUserName,
+              existingUser?.birthdate,
+              emotionResult ? toneGuidelines(emotionResult.label) : undefined,
+              memoryContext
+            );
             cards = result.cards;
             interpretation = result.interpretation;
           } catch {
@@ -468,6 +507,8 @@ http.route({
             })),
             interpretation,
             readingType: "daily",
+            emotionLabel: emotionResult?.label,
+            emotionScores: emotionResult?.scores,
           });
 
           // Get the updated user info to include name in future readings
@@ -690,11 +731,30 @@ async function handleFollowupPostback(ctx: ActionCtx, messengerId: string, paylo
 
 async function processFollowupQuestion(ctx: ActionCtx, messengerId: string, question: string, reading: Doc<"readings">, accessToken: string): Promise<void> {
   try {
-    // Process the follow-up question
+    // Analyze emotion from follow-up question for better responses
+    let emotionResult = null;
+    try {
+      emotionResult = await ctx.runAction(api.ai.emotionalAnalysis.analyzeEmotion, {
+        text: question,
+      });
+      // Update user's last emotion
+      if (emotionResult) {
+        await ctx.runMutation(internal.users.updateLastEmotion, {
+          messengerId,
+          emotionLabel: emotionResult.label,
+          emotionAt: Date.now(),
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to analyze emotion for follow-up:", error);
+    }
+
+    // Process the follow-up question with emotion context
     const result = await ctx.runAction(api.followups.askFollowupQuestion, {
       readingId: reading._id,
       messengerId,
-      question
+      question,
+      emotionTone: emotionResult ? toneGuidelines(emotionResult.label) : undefined,
     });
 
     if (result.response) {

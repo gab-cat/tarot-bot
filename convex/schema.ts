@@ -21,6 +21,8 @@ export default defineSchema({
     subscriptionStartAt: v.optional(v.number()), // Unix timestamp when subscription started
     subscriptionExpiresAt: v.optional(v.number()), // Unix timestamp when subscription expires
     scheduledDowngradeId: v.optional(v.id("_scheduled_functions")), // ID of scheduled downgrade job
+    lastEmotionLabel: v.optional(v.string()), // Last detected emotion from user's questions
+    lastEmotionAt: v.optional(v.number()), // Unix timestamp when emotion was last detected
   }).index("by_messenger_id", ["messengerId"]),
 
   readings: defineTable({
@@ -54,7 +56,20 @@ export default defineSchema({
       })
     )),
     lastActivityAt: v.number(),
-  }).index("by_user", ["userId"]),
+    embedding: v.optional(v.array(v.float64())), // Vector embedding for RAG retrieval (dimensions will be set by model)
+    emotionLabel: v.optional(v.string()), // Detected emotion from user's question
+    emotionScores: v.optional(v.object({ // Raw emotion scores from analysis
+      anxious: v.optional(v.number()),
+      sad: v.optional(v.number()),
+      neutral: v.optional(v.number()),
+      hopeful: v.optional(v.number()),
+      angry: v.optional(v.number()),
+      confused: v.optional(v.number()),
+    })),
+  }).index("by_user", ["userId"]).vectorIndex("by_embedding", {
+    vectorField: "embedding",
+    dimensions: 1536, // Adjust based on embedding model used
+  }),
 
   tarotCards: defineTable({
     cardId: v.string(),

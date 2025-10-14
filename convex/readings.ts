@@ -1,7 +1,7 @@
 import { type Doc, type Id } from "./_generated/dataModel";
 import { mutation, internalMutation, query, internalQuery, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 export const createReading = mutation({
   args: {
@@ -19,6 +19,15 @@ export const createReading = mutation({
     })),
     interpretation: v.string(),
     readingType: v.string(),
+    emotionLabel: v.optional(v.string()),
+    emotionScores: v.optional(v.object({
+      anxious: v.optional(v.number()),
+      sad: v.optional(v.number()),
+      neutral: v.optional(v.number()),
+      hopeful: v.optional(v.number()),
+      angry: v.optional(v.number()),
+      confused: v.optional(v.number()),
+    })),
   },
   handler: async (ctx, args) => {
     const readingId = await ctx.db.insert("readings", {
@@ -39,6 +48,8 @@ export const createReading = mutation({
       }],
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
+      emotionLabel: args.emotionLabel,
+      emotionScores: args.emotionScores,
     });
 
     // Check if user has reached their daily limit and schedule notification if needed
@@ -72,6 +83,13 @@ export const createReading = mutation({
         });
       }
     }
+
+    // Asynchronously compute and store embedding for future RAG retrieval
+    // Don't block the reading creation on this
+    ctx.scheduler.runAfter(0, api.embeddings.storeReadingEmbedding, {
+      readingId,
+      text: args.interpretation,
+    });
 
     return readingId;
   },
@@ -145,6 +163,18 @@ export const updateAfterQuestion = internalMutation({
       conversationHistory: args.conversationHistory,
       sessionState: args.sessionState,
       lastActivityAt: args.lastActivityAt,
+    });
+  },
+});
+
+export const updateReadingEmbedding = internalMutation({
+  args: {
+    readingId: v.id("readings"),
+    embedding: v.array(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.readingId, {
+      embedding: args.embedding,
     });
   },
 });

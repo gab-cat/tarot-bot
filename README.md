@@ -24,10 +24,13 @@ The bot draws from a complete Rider-Waite tarot deck, considering card positions
 
 ### 🔮 Core Functionality
 
-- **AI-Powered Interpretations**: Uses Google Gemini 2.5 Flash for intelligent, contextual tarot readings
+- **AI-Powered Interpretations**: Uses Google Gemini 2.5 Pro for intelligent, contextual tarot readings
 - **Three-Card Spreads**: Past, Present, Future positions for comprehensive insights
 - **Card Reversals**: Cards can appear upright or reversed, adding depth to readings
+- **Reading Memory (RAG)**: AI remembers and references your past readings for continuity
+- **Emotional Analysis**: Real-time emotion detection adapts responses to your current state
 - **Personalized Guidance**: AI analyzes your specific question to provide relevant insights
+- **Contextual Follow-ups**: Unlimited follow-up questions with conversation history
 
 ### 🤖 Messenger Integration
 
@@ -48,11 +51,27 @@ The bot draws from a complete Rider-Waite tarot deck, considering card positions
 - **Dynamic Image Serving**: HTTP endpoints for card images
 - **Image Processing**: Jimp integration for image manipulation
 
+### 🧠 Advanced AI Features
+
+#### Reading Memory (RAG)
+
+- **Semantic Search**: Uses vector embeddings to find relevant past readings
+- **Contextual Continuity**: AI references your previous readings when answering related questions
+- **Personalized Narratives**: Builds ongoing spiritual journey stories across sessions
+- **Memory Enhancement**: Full reading interpretations are embedded for comprehensive recall
+
+#### Emotional Analysis
+
+- **Real-time Detection**: Analyzes emotional state from every user message
+- **Adaptive Responses**: AI tone adjusts based on detected emotions (anxious, sad, hopeful, etc.)
+- **Empathetic Guidance**: Provides more compassionate and contextually appropriate advice
+- **Emotion Tracking**: Stores emotional patterns for enhanced user understanding
+
 ## 🛠️ Tech Stack
 
 - **[Bun](https://bun.sh/)** - Fast JavaScript runtime and package manager
 - **[Convex](https://convex.dev/)** - Backend-as-a-Service with real-time database
-- **[Google Gemini AI](https://ai.google.dev/)** - Advanced AI for tarot interpretations
+- **[Google Gemini AI](https://ai.google.dev/)** - Gemini 2.5 Pro for interpretations, Gemini 2.5 Flash-Lite for emotion analysis, embedding-001 for semantic search
 - **[Facebook Messenger API](https://developers.facebook.com/docs/messenger-platform/)** - Bot messaging platform
 - **[Jimp](https://github.com/jimp-dev/jimp)** - JavaScript image processing
 - **TypeScript** - Type-safe development
@@ -176,6 +195,29 @@ Bot: 🎴 Your Cards Are Drawn ✨
 🔮 The Real Deal: The cards are showing you...
 ```
 
+### Advanced AI Features in Action
+
+**Reading Memory Example:**
+
+```
+You: "I'm still worried about that job decision from last week"
+
+Bot: Drawing from your reading on October 15th where The Lovers appeared in your present position, and considering your current anxious state, the cards show...
+
+[AI references your previous reading context and emotional state]
+```
+
+**Emotional Analysis Example:**
+
+```
+You: "I'm so anxious about this decision"
+
+Bot: [AI detects anxiety and adapts tone]
+I understand this decision has you feeling anxious. Let's approach this with the cards' gentle wisdom...
+
+[Response uses calming, reassuring language]
+```
+
 ## 📡 API Reference
 
 ### HTTP Endpoints
@@ -208,6 +250,12 @@ Handles incoming Messenger messages and events.
 #### Actions
 
 - `tarot:drawThreeRandomCards` - Generate AI-powered reading
+- `tarot:generateFollowupResponse` - Generate contextual follow-up responses
+- `ai:interpretationModel.generateInterpretation` - Core AI interpretation with RAG and emotion context
+- `ai:emotionalAnalysis.analyzeEmotion` - Detect user's emotional state from text
+- `rag:buildReadingMemoryContext` - Retrieve relevant past readings for RAG
+- `embeddings:computeReadingEmbedding` - Generate vector embeddings for readings
+- `embeddings:storeReadingEmbedding` - Store embeddings for future retrieval
 - `facebookApi:getUserProfile` - Fetch user profile from Facebook
 
 ## 🗄️ Database Schema
@@ -219,12 +267,23 @@ Handles incoming Messenger messages and events.
   messengerId: string,
   firstName?: string,
   lastName?: string,
+  birthdate?: string,
   isSubscribed: boolean,
-  userType: "free" | "pro" | "pro+",
+  userType: "free" | "mystic" | "oracle" | "pro" | "pro+",
   createdAt: number,
   lastActiveAt: number,
   lastReadingDate?: number,
-  sessionState?: string
+  sessionState?: string,
+  description?: string,
+  descriptionLastUpdated?: number,
+  followupSessionsToday?: number,
+  lastFollowupAt?: number,
+  scheduledNotificationId?: Id<"_scheduled_functions">,
+  subscriptionStartAt?: number,
+  subscriptionExpiresAt?: number,
+  scheduledDowngradeId?: Id<"_scheduled_functions">,
+  lastEmotionLabel?: string,
+  lastEmotionAt?: number
 }
 ```
 
@@ -240,11 +299,36 @@ Handles incoming Messenger messages and events.
     name: string,
     meaning: string,
     position: string,
-    reversed: boolean
+    reversed: boolean,
+    description: string,
+    cardType: string
   }>,
   interpretation: string,
   readingType: "daily" | "question" | "manual",
-  createdAt: number
+  createdAt: number,
+  sessionState: "active" | "followup_available" | "followup_in_progress" | "completed" | "ended",
+  subscriptionTier: "free" | "mystic" | "oracle" | "pro" | "pro+",
+  maxFollowups: number,
+  followupsUsed: number,
+  conversationHistory?: Array<{
+    type: "initial_reading" | "followup_question" | "followup_response" | "session_end",
+    timestamp: number,
+    content: string,
+    questionNumber?: number,
+    responseTime?: number,
+    isValidQuestion?: boolean
+  }>,
+  lastActivityAt: number,
+  embedding?: number[], // Vector embedding for RAG retrieval
+  emotionLabel?: string, // Detected emotion from user's question
+  emotionScores?: {
+    anxious?: number,
+    sad?: number,
+    neutral?: number,
+    hopeful?: number,
+    angry?: number,
+    confused?: number
+  }
 }
 ```
 

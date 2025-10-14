@@ -123,6 +123,7 @@ export const askFollowupQuestion = action({
     readingId: v.id("readings"),
     messengerId: v.string(),
     question: v.string(),
+    emotionTone: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<FollowupQuestionResult> => {
     // Get the reading and user
@@ -153,7 +154,8 @@ export const askFollowupQuestion = action({
     const response = await generateFollowupResponse(
       ctx,
       args.question,
-      args.readingId
+      args.readingId,
+      args.emotionTone
     );
 
     const responseTime = Date.now() - startTime;
