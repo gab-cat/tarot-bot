@@ -11,7 +11,7 @@ export const computeReadingEmbedding = action({
   args: {
     text: v.string(),
   },
-  handler: async (ctx, args): Promise<number[]> => {
+  handler: async (_ctx, args): Promise<number[]> => {
     const geminiApiKey = process.env.GEMINI_API_KEY;
     if (!geminiApiKey) {
       console.warn("GEMINI_API_KEY not found, returning empty embedding");
