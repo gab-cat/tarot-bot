@@ -812,17 +812,17 @@ http.route({
       const currency = "PHP";
       const description = `Upgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`;
       const redirectUrl = process.env.REDIRECT_URL || "https://your-project.convex.cloud";
-      const successRedirect = `${redirectUrl}/xendit/success?external_id=${externalId}`;
-      const failureRedirect = `${redirectUrl}/xendit/failure?external_id=${externalId}`;
+      const successRedirectUrl = `${redirectUrl}/xendit/success?external_id=${externalId}`;
+      const failureRedirectUrl = `${redirectUrl}/xendit/failure?external_id=${externalId}`;
 
       const created = await Invoice.createInvoice({
         data: {
-          externalId: externalId,
+          externalId,
           amount,
           description,
           currency,
-          successRedirectUrl: successRedirect,
-          failureRedirectUrl: failureRedirect,
+          successRedirectUrl,
+          failureRedirectUrl,
         }
       });
 
