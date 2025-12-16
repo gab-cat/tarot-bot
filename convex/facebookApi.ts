@@ -152,6 +152,64 @@ export const getUserProfileViaMessage = action({
   },
 });
 
+const MESSENGER_MAX_CHARS = 2000;
+
+/**
+ * Splits a long message into chunks that fit within Messenger's character limit.
+ * Tries to split at natural break points (paragraphs, sentences, words).
+ */
+function splitMessageIntoChunks(text: string, maxChars: number = MESSENGER_MAX_CHARS): string[] {
+  if (text.length <= maxChars) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining.trim());
+      break;
+    }
+
+    let splitIndex = maxChars;
+
+    // Try to split at paragraph break (double newline)
+    const paragraphBreak = remaining.lastIndexOf('\n\n', maxChars);
+    if (paragraphBreak > maxChars * 0.3) {
+      splitIndex = paragraphBreak;
+    } else {
+      // Try to split at single newline
+      const lineBreak = remaining.lastIndexOf('\n', maxChars);
+      if (lineBreak > maxChars * 0.3) {
+        splitIndex = lineBreak;
+      } else {
+        // Try to split at sentence end
+        const sentenceEnd = Math.max(
+          remaining.lastIndexOf('. ', maxChars),
+          remaining.lastIndexOf('! ', maxChars),
+          remaining.lastIndexOf('? ', maxChars)
+        );
+        if (sentenceEnd > maxChars * 0.3) {
+          splitIndex = sentenceEnd + 1;
+        } else {
+          // Try to split at word boundary
+          const wordBreak = remaining.lastIndexOf(' ', maxChars);
+          if (wordBreak > maxChars * 0.3) {
+            splitIndex = wordBreak;
+          }
+          // If no good break point, just cut at maxChars
+        }
+      }
+    }
+
+    chunks.push(remaining.slice(0, splitIndex).trim());
+    remaining = remaining.slice(splitIndex).trim();
+  }
+
+  return chunks;
+}
+
 export const sendFollowupResponse = action({
   args: {
     messengerId: v.string(),
@@ -167,18 +225,35 @@ export const sendFollowupResponse = action({
     }
 
     try {
+      const messageChunks = splitMessageIntoChunks(args.response);
       const quickReplies = buildFollowupQuickReplies(args.remainingQuestions);
 
-      const messageData = {
-        recipient: { id: args.messengerId },
-        message: {
-          text: args.response,
-          quick_replies: quickReplies,
-        },
-      };
+      // Send all chunks sequentially
+      for (let i = 0; i < messageChunks.length; i++) {
+        const isLastChunk = i === messageChunks.length - 1;
+        
+        const messageData: FacebookMessageData = {
+          recipient: { id: args.messengerId },
+          message: {
+            text: messageChunks[i],
+            // Only add quick replies to the last message
+            ...(isLastChunk && { quick_replies: quickReplies }),
+          },
+        };
 
-      const result = await sendMessageToFacebook(messageData, accessToken);
-      return result;
+        const result = await sendMessageToFacebook(messageData, accessToken);
+        if (!result) {
+          console.error(`Failed to send message chunk ${i + 1}/${messageChunks.length}`);
+          return false;
+        }
+
+        // Small delay between messages to ensure order
+        if (!isLastChunk) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      return true;
     } catch (error) {
       console.error("Error sending follow-up response:", error);
       return false;
