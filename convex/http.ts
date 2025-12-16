@@ -7,6 +7,64 @@ import { toBoldFont } from "./constants";
 import { Invoice } from "./xenditClient";
 import { toneGuidelines } from "./ai/emotionalAnalysis";
 
+const MESSENGER_MAX_CHARS = 2000;
+
+/**
+ * Splits a long message into chunks that fit within Messenger's character limit.
+ * Tries to split at natural break points (paragraphs, sentences, words).
+ */
+function splitMessageIntoChunks(text: string, maxChars: number = MESSENGER_MAX_CHARS): string[] {
+  if (text.length <= maxChars) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining.trim());
+      break;
+    }
+
+    let splitIndex = maxChars;
+
+    // Try to split at paragraph break (double newline)
+    const paragraphBreak = remaining.lastIndexOf('\n\n', maxChars);
+    if (paragraphBreak > maxChars * 0.3) {
+      splitIndex = paragraphBreak;
+    } else {
+      // Try to split at single newline
+      const lineBreak = remaining.lastIndexOf('\n', maxChars);
+      if (lineBreak > maxChars * 0.3) {
+        splitIndex = lineBreak;
+      } else {
+        // Try to split at sentence end
+        const sentenceEnd = Math.max(
+          remaining.lastIndexOf('. ', maxChars),
+          remaining.lastIndexOf('! ', maxChars),
+          remaining.lastIndexOf('? ', maxChars)
+        );
+        if (sentenceEnd > maxChars * 0.3) {
+          splitIndex = sentenceEnd + 1;
+        } else {
+          // Try to split at word boundary
+          const wordBreak = remaining.lastIndexOf(' ', maxChars);
+          if (wordBreak > maxChars * 0.3) {
+            splitIndex = wordBreak;
+          }
+          // If no good break point, just cut at maxChars
+        }
+      }
+    }
+
+    chunks.push(remaining.slice(0, splitIndex).trim());
+    remaining = remaining.slice(splitIndex).trim();
+  }
+
+  return chunks;
+}
+
 
 // Facebook webhook types
 interface FacebookWebhookMessage {
@@ -531,13 +589,17 @@ http.route({
           // Send a summary message
           await sendTextMessage(senderId, MESSAGES.cardsDrawn, accessToken);
 
-          // Send interpretation in separate message (limit to 2000 chars for Facebook Messenger)
-          const maxInterpretationLength = 2000 - MESSAGES.readingComplete.length;
-          const truncatedInterpretation = interpretation.length > maxInterpretationLength
-            ? interpretation.substring(0, maxInterpretationLength - 3) + "..."
-            : interpretation;
-          const interpretationMessage = `${truncatedInterpretation}${MESSAGES.readingComplete}`;
-          await sendTextMessage(senderId, interpretationMessage, accessToken);
+          // Send interpretation as multiple messages if needed (Messenger has 2000 char limit)
+          const fullInterpretation = `${interpretation}${MESSAGES.readingComplete}`;
+          const interpretationChunks = splitMessageIntoChunks(fullInterpretation);
+          
+          for (let i = 0; i < interpretationChunks.length; i++) {
+            await sendTextMessage(senderId, interpretationChunks[i], accessToken);
+            // Small delay between messages to ensure order
+            if (i < interpretationChunks.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
 
           // Start followup session after reading is completed
           try {
