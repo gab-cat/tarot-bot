@@ -1,4 +1,27 @@
-<!-- 152b5208-8e63-4cef-adf5-113f05ee5f1e 9f30f738-f731-4461-afcd-b0691b302bae -->
+---
+name: Promotional Period Feature Implementation
+overview: ""
+todos:
+  - id: bd799897-72ed-4784-a445-d2e6d32092e5
+    content: Add promotionalPeriods table to schema.ts with all required fields and index
+    status: pending
+  - id: e6221ee8-b051-4d02-880b-d7420bc933a3
+    content: Create convex/promotions.ts with core promotional period logic (create, get, check eligibility, list, deactivate)
+    status: pending
+  - id: 6d9ae112-6886-4833-a097-b6dadfb1bba0
+    content: Modify canReadToday in users.ts to check promotional period eligibility before applying normal limits
+    status: pending
+  - id: 14b10a6e-cc30-445d-a948-b49deb01a0d8
+    content: Modify validateFollowupLimit in followups.ts to check promotional period eligibility and update all call sites
+    status: pending
+  - id: 2204b1de-ebc8-4bc0-9903-43ada20c108e
+    content: Add promotional notification functions to notifications.ts for start and end messages
+    status: pending
+  - id: 1c5d0bf1-cbbd-4507-b238-7867f2e9892e
+    content: Test the promotional period feature end-to-end (create, verify unlimited access, notifications, auto-deactivation)
+    status: pending
+---
+
 # Promotional Period Feature Implementation
 
 ## Overview
@@ -134,12 +157,3 @@ createPromotionalPeriod({
   // targetedUserIds or targetedUserTypes as needed
 })
 ```
-
-### To-dos
-
-- [ ] Add promotionalPeriods table to schema.ts with all required fields and index
-- [ ] Create convex/promotions.ts with core promotional period logic (create, get, check eligibility, list, deactivate)
-- [ ] Modify canReadToday in users.ts to check promotional period eligibility before applying normal limits
-- [ ] Modify validateFollowupLimit in followups.ts to check promotional period eligibility and update all call sites
-- [ ] Add promotional notification functions to notifications.ts for start and end messages
-- [ ] Test the promotional period feature end-to-end (create, verify unlimited access, notifications, auto-deactivation)

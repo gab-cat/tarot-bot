@@ -156,12 +156,30 @@ export class GeminiInterpretationModel implements InterpretationModel {
         googleSearch: {},
       };
 
+      const outputInstructions = `
+CRITICAL OUTPUT REQUIREMENTS:
+1. STRICT WORD LIMIT: Your entire response MUST be under 2000 words. This is non-negotiable.
+2. STRUCTURED FORMAT: Use the following structure:
+
+🔮 **Overview** (1-2 sentences summarizing the reading's theme)
+
+📖 **Card Insights**
+- [Card Name]: Brief interpretation in context
+
+💫 **Core Message** (The main guidance from this reading)
+
+🌟 **Actionable Advice** (2-3 practical steps)
+
+3. Be concise but meaningful. Quality over quantity.
+4. Use emojis sparingly for visual appeal.
+`;
+
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-pro", // Using Pro model for complex interpretations
-        contents: "IMPORTANT: Keep everything under 2000 characters (emojis included)" + "\n\n"
-            + systemPrompt + "\n\n" + userPrompt,
+        model: "gemini-3-pro", // Using Gemini 3 Pro for complex interpretations
+        contents: userPrompt,
         config: {
-          tools: [groundingTool]
+          tools: [groundingTool],
+          systemInstruction: systemPrompt + "\n\n" + outputInstructions,
         }
       });
 

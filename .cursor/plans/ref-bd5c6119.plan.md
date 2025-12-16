@@ -1,4 +1,24 @@
-<!-- bd5c6119-bf6e-4d6a-8b0b-293a3db50716 d4b1498e-39e5-4c5a-961b-7922bcafff07 -->
+---
+name: Refactor Payments to Xendit Node SDK
+overview: ""
+todos:
+  - id: 01cd173b-adf3-4992-a0bc-a740dccda65a
+    content: Add xendit-node dependency using bun
+    status: pending
+  - id: 609cd3f3-c8de-4bfc-814f-148823a606bb
+    content: Create convex/xenditClient.ts exposing Invoice
+    status: pending
+  - id: 8c649312-e9b1-46f6-9bd3-8e4cb7c9d0af
+    content: Use Invoice.create in /xendit/checkout route
+    status: pending
+  - id: 3b10134d-e9f7-4cf4-9276-97e23c797f27
+    content: Confirm webhook payload mapping and keep token validation
+    status: pending
+  - id: 337ccfd0-991f-4f9e-98b0-fdc92c783ab1
+    content: Add env placeholders and update docs with setup notes
+    status: pending
+---
+
 # Refactor Payments to Xendit Node SDK
 
 ## Scope
@@ -65,11 +85,3 @@
 ## References
 
 - Xendit Node SDK Invoice docs: `https://github.com/xendit/xendit-node/blob/master/docs/Invoice.md`
-
-### To-dos
-
-- [ ] Add xendit-node dependency using bun
-- [ ] Create convex/xenditClient.ts exposing Invoice
-- [ ] Use Invoice.create in /xendit/checkout route
-- [ ] Confirm webhook payload mapping and keep token validation
-- [ ] Add env placeholders and update docs with setup notes
