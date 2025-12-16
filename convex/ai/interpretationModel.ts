@@ -175,7 +175,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-pro", // Using Gemini 3 Pro for complex interpretations
+        model: "gemini-2.5-pro", // Using Gemini 2.5 Pro for complex reasoning
         contents: userPrompt,
         config: {
           tools: [groundingTool],
