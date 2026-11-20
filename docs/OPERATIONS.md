@@ -10,7 +10,7 @@ before running it on prod.
 |---|---|
 | `ACCESS_TOKEN` | Page access token for the Send API |
 | `VERIFY_TOKEN` | Webhook verify token (falls back to `APP_SECRET`, the old name) |
-| `FACEBOOK_APP_SECRET` | Checks `X-Hub-Signature-256` on every webhook. If missing, signatures are not checked and every request logs an error |
+| `FACEBOOK_APP_SECRET` | Checks `X-Hub-Signature-256` on every webhook. If missing but `APP_SECRET` is set, each webhook logs whether its signature matches `APP_SECRET` without enforcing it; once the logs say it matches, set `FACEBOOK_APP_SECRET` to the same value |
 | `GEMINI_API_KEY` | Gemini |
 | `GEMINI_READING_MODEL`, `GEMINI_FAST_MODEL` | Optional model overrides, see `convex/ai/models.ts` |
 | `TYPESAFE_API_KEY` | Jev. Without it the bot falls back to keyword checks and skips emotion |

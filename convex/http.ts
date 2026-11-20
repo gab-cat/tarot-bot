@@ -44,6 +44,15 @@ http.route({
         console.warn("Rejected a webhook POST with a bad X-Hub-Signature-256");
         return new Response("Invalid signature", { status: 401 });
       }
+    } else if (process.env.APP_SECRET) {
+      // Rollout: prod has an APP_SECRET that is probably the Meta app secret. Report whether
+      // it matches before enforcing it, so a wrong guess can't reject every message.
+      const matches = await verifyMessengerSignature(rawBody, request.headers.get("x-hub-signature-256"), process.env.APP_SECRET);
+      console.warn(
+        matches
+          ? "Webhook signature matches APP_SECRET. Set FACEBOOK_APP_SECRET to the same value to enforce it."
+          : "Webhook signature does NOT match APP_SECRET; signatures are not being enforced",
+      );
     } else {
       console.error("FACEBOOK_APP_SECRET is not set: webhook signatures are NOT being checked");
     }
