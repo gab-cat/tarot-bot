@@ -22,7 +22,6 @@ export const readingsPage = internalQuery({
         question: reading.question,
         cards: reading.cards,
         interpretation: reading.interpretation,
-        hasLegacyEmbedding: reading.embedding !== undefined,
       })),
     };
   },
@@ -30,7 +29,7 @@ export const readingsPage = internalQuery({
 
 /**
  * Embeds every reading that has no row in `readingEmbeddings` (gemini-embedding-2,
- * 1536-d) and clears the legacy `readings.embedding` field. About 500 input tokens per
+ * 1536-d). Only adds rows; the legacy `readings.embedding` field is left alone. About 500 input tokens per
  * reading at $0.20 per 1M, so 10,000 readings cost about $1.
  *
  *   npx convex run migrations:backfillReadingEmbeddings '{"dryRun": true}'
@@ -50,7 +49,6 @@ export const backfillReadingEmbeddings = internalAction({
         question?: string;
         cards: StoredCard[];
         interpretation: string;
-        hasLegacyEmbedding: boolean;
       }>;
       isDone: boolean;
       continueCursor: string;
@@ -62,7 +60,7 @@ export const backfillReadingEmbeddings = internalAction({
     let failed = 0;
     for (const reading of page.page) {
       const done = await ctx.runQuery(internal.embeddings.hasEmbedding, { readingId: reading._id });
-      if (done && !reading.hasLegacyEmbedding) continue;
+      if (done) continue;
       if (args.dryRun) {
         embedded++;
         continue;

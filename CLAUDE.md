@@ -43,6 +43,6 @@ history from earlier features, not the source of truth.
 - **Model writes `**bold**` Markdown; `formatForMessenger` converts it.** Don't ask the model for Unicode bold.
 - **A scheduled mutation must not cancel its own job.** Since Convex 1.50 that throws and rolls back (`users:downgradeToFree` explains).
 - **Convex `.filter()` takes `q.and(...)`, not `&&`.** `a && b` silently keeps only `b`; four filters had that bug. Prefer an index or filtering in JS on a bounded `.take()`.
-- **Schema changes are widen, migrate, narrow.** Legacy fields still in the schema: `readings.embedding` (until `migrations:backfillReadingEmbeddings` runs on prod) and `users.followupSessionsToday`.
+- **Schema changes are widen, migrate, narrow.** Legacy fields still in the schema: `readings.embedding` (unused; clearing it deletes data, so ask first) and `users.followupSessionsToday`.
 - **Bot copy is Gab's voice.** Keep the persona in `convex/ai/prompts.ts` and the messages in `convex/constants.ts` as they are unless asked. Prices, limits and promises in copy are business decisions.
 - **Ask Gab before:** `npx convex deploy`, setting or changing prod env vars, running a migration or promo on prod, messaging real users, anything touching payments or plan limits.

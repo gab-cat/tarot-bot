@@ -76,7 +76,7 @@ never loaded with a reading.
 
 ## Schema and migrations
 
-- Widen → migrate → narrow. Legacy fields still in the schema: `readings.embedding` (cleared by `migrations:backfillReadingEmbeddings`) and `users.followupSessionsToday`.
+- Widen → migrate → narrow. Legacy fields still in the schema: `readings.embedding` (unused since Nov 2026; clearing it deletes data, so it's Gab's call) and `users.followupSessionsToday`.
 - Migrations go in `convex/migrations.ts`: paginated, self-scheduling, idempotent, with `dryRun`. Show Gab the dry-run numbers before prod.
 
 ## Security

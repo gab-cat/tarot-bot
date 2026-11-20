@@ -48,10 +48,6 @@ export const saveEmbedding = internalMutation({
       .first();
     if (existing) await ctx.db.patch("readingEmbeddings", existing._id, { embedding: args.embedding });
     else await ctx.db.insert("readingEmbeddings", args);
-
-    // Drop the legacy copy on the reading itself so reads of `readings` stay small.
-    const reading = await ctx.db.get("readings", args.readingId);
-    if (reading?.embedding) await ctx.db.patch("readings", args.readingId, { embedding: undefined });
   },
 });
 

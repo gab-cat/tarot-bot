@@ -43,8 +43,9 @@ npx convex run facebookApi:setupWelcomeScreen
 # Upload all 78 card images to Messenger and cache the attachment ids
 npx convex run imageActions:initializeCardImages
 
-# Embed every reading into readingEmbeddings and clear the legacy readings.embedding.
-# About $1 per 10,000 readings. Batched, resumable, safe to run twice.
+# Embed every reading into readingEmbeddings. Only adds rows; the legacy
+# readings.embedding field is left alone. About $1 per 10,000 readings.
+# Batched, resumable, safe to run twice.
 npx convex run migrations:backfillReadingEmbeddings '{"dryRun": true}'
 npx convex run migrations:backfillReadingEmbeddings '{}'
 

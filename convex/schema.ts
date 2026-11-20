@@ -60,8 +60,8 @@ export default defineSchema({
     followupsUsed: v.number(),
     conversationHistory: v.optional(v.array(conversationEntryValidator)),
     lastActivityAt: v.number(),
-    // Legacy: embeddings now live in `readingEmbeddings`. `migrations:backfillReadingEmbeddings`
-    // clears this field; drop it from the schema once that has run on prod.
+    // Legacy: embeddings now live in `readingEmbeddings` and nothing reads this field. Clear it
+    // on prod (Gab's call; it deletes data) before dropping it from the schema.
     embedding: v.optional(v.array(v.float64())),
     emotionLabel: v.optional(v.string()),
     emotionScores: v.optional(emotionScoresValidator),
