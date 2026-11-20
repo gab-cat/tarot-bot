@@ -168,6 +168,10 @@ export const NOTIFICATION_GREETINGS = [
   "🌟 Fresh cosmic guidance awaits...",
 ];
 
+// Before Nov 2026 a failed Gemini call silently stored and sent a canned reading containing
+// this phrase. Used to find those readings and keep them out of reading memory.
+export const LEGACY_FALLBACK_MARKER = "draws forth a fascinating journey";
+
 export const DEFAULT_PROFILE_DESCRIPTION =
   "A curious soul beginning their journey into the mystical arts, ready to discover the wisdom the cards hold.";
 

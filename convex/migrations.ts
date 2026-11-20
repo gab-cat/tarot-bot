@@ -7,6 +7,7 @@ import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { embedDocument } from "./ai/gemini";
 import { readingEmbeddingText } from "./embeddings";
+import { LEGACY_FALLBACK_MARKER } from "./constants";
 import type { Id } from "./_generated/dataModel";
 import type { StoredCard } from "./validators";
 
@@ -29,7 +30,7 @@ export const readingsPage = internalQuery({
 
 /**
  * Embeds every reading that has no row in `readingEmbeddings` (gemini-embedding-2,
- * 1536-d). Only adds rows; the legacy `readings.embedding` field is left alone. About 500 input tokens per
+ * 1536-d), skipping old canned fallback readings. Only adds rows; the legacy `readings.embedding` field is left alone. About 500 input tokens per
  * reading at $0.20 per 1M, so 10,000 readings cost about $1.
  *
  *   npx convex run migrations:backfillReadingEmbeddings '{"dryRun": true}'
@@ -61,6 +62,7 @@ export const backfillReadingEmbeddings = internalAction({
     for (const reading of page.page) {
       const done = await ctx.runQuery(internal.embeddings.hasEmbedding, { readingId: reading._id });
       if (done) continue;
+      if (reading.interpretation.includes(LEGACY_FALLBACK_MARKER)) continue; // canned text, not a real reading
       if (args.dryRun) {
         embedded++;
         continue;

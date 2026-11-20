@@ -4,16 +4,13 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { formatCardSummary, toBoldFont } from "./constants";
+import { LEGACY_FALLBACK_MARKER, formatCardSummary, toBoldFont } from "./constants";
 import { generateReading } from "./ai/gemini";
 import { toneGuidelines } from "./ai/prompts";
 import { getPageAccessToken, sendText } from "./lib/messenger";
 import { fullName } from "./lib/text";
 import { DAY_MS } from "./lib/time";
 import type { EmotionLabel } from "./validators";
-
-// Before Nov 2026 a failed Gemini call silently stored and sent this canned text.
-const FALLBACK_MARKER = "draws forth a fascinating journey";
 
 /** The most recent readings whose interpretation is the old canned fallback. */
 export const findFallbackReadings = internalQuery({
@@ -23,7 +20,7 @@ export const findFallbackReadings = internalQuery({
       .query("readings")
       .order("desc")
       .take(Math.min(args.scan ?? 200, 1000));
-    const fallbacks = recent.filter((reading) => reading.interpretation.includes(FALLBACK_MARKER));
+    const fallbacks = recent.filter((reading) => reading.interpretation.includes(LEGACY_FALLBACK_MARKER));
     return await Promise.all(
       fallbacks.map(async (reading) => {
         const user = await ctx.db.get("users", reading.userId);
