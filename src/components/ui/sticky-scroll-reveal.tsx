@@ -1,8 +1,19 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef } from "react";
 import { useMotionValueEvent, useScroll } from "motion/react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
+
+const backgroundColors = [
+  "rgba(255, 255, 255, 0.05)", // subtle white overlay
+  "rgba(139, 92, 246, 0.05)", // subtle purple overlay
+  "rgba(59, 130, 246, 0.05)", // subtle blue overlay
+];
+const linearGradients = [
+  "linear-gradient(to bottom right, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1))", // subtle purple to blue
+  "linear-gradient(to bottom right, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1))", // subtle blue to green
+  "linear-gradient(to bottom right, rgba(139, 92, 246, 0.1), rgba(245, 101, 101, 0.1))", // subtle purple to red
+];
 
 export const StickyScroll = ({
   content,
@@ -11,12 +22,12 @@ export const StickyScroll = ({
   content: {
     title: string;
     description: string;
-    content?: React.ReactNode | any;
+    content?: React.ReactNode;
   }[];
   contentClassName?: string;
 }) => {
   const [activeCard, setActiveCard] = React.useState(0);
-  const ref = useRef<any>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     // uncomment line 22 and comment line 23 if you DONT want the overflow container and want to have it change on the entire page scroll
     // target: ref
@@ -40,24 +51,7 @@ export const StickyScroll = ({
     setActiveCard(closestBreakpointIndex);
   });
 
-  const backgroundColors = [
-    "rgba(255, 255, 255, 0.05)", // subtle white overlay
-    "rgba(139, 92, 246, 0.05)", // subtle purple overlay
-    "rgba(59, 130, 246, 0.05)", // subtle blue overlay
-  ];
-  const linearGradients = [
-    "linear-gradient(to bottom right, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1))", // subtle purple to blue
-    "linear-gradient(to bottom right, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1))", // subtle blue to green
-    "linear-gradient(to bottom right, rgba(139, 92, 246, 0.1), rgba(245, 101, 101, 0.1))", // subtle purple to red
-  ];
-
-  const [backgroundGradient, setBackgroundGradient] = useState(
-    linearGradients[0],
-  );
-
-  useEffect(() => {
-    setBackgroundGradient(linearGradients[activeCard % linearGradients.length]);
-  }, [activeCard]);
+  const backgroundGradient = linearGradients[activeCard % linearGradients.length];
 
   return (
     <motion.div

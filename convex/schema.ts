@@ -1,75 +1,90 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { EMBEDDING_DIMENSIONS } from "./ai/models";
+import {
+  conversationEntryValidator,
+  emotionScoresValidator,
+  paidPlanValidator,
+  paymentStatusValidator,
+  readingSessionStateValidator,
+  readingTypeValidator,
+  storedCardValidator,
+  userSessionStateValidator,
+  userTierValidator,
+} from "./validators";
 
 export default defineSchema({
   users: defineTable({
-    messengerId: v.string(),
+    messengerId: v.string(), // Page-scoped id (PSID)
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    birthdate: v.optional(v.string()), // Format: "Month DD" (e.g., "Oct 15", "Dec 2")
+    birthdate: v.optional(v.string()), // "Mon D", e.g. "Oct 15"
     isSubscribed: v.boolean(),
-    userType: v.union(v.literal("free"), v.literal("mystic"), v.literal("oracle"), v.literal("pro"), v.literal("pro+")),
+    userType: userTierValidator,
     createdAt: v.number(),
     lastActiveAt: v.number(),
-    lastReadingDate: v.optional(v.number()), // Unix timestamp for last daily reading
-    sessionState: v.optional(v.union(v.literal("waiting_question"), v.literal("reading_in_progress"), v.literal("reading_complete"), v.literal("waiting_birthdate"), v.literal("followup_available"), v.literal("followup_in_progress"))),
-    description: v.optional(v.string()), // AI-generated user description
-    descriptionLastUpdated: v.optional(v.number()), // Unix timestamp when description was last updated
-    followupSessionsToday: v.optional(v.number()), // Count of follow-up sessions used today
-    lastFollowupAt: v.optional(v.number()), // Unix timestamp of last follow-up interaction
-    scheduledNotificationId: v.optional(v.id("_scheduled_functions")), // ID of scheduled notification job for daily reading availability
-    subscriptionStartAt: v.optional(v.number()), // Unix timestamp when subscription started
-    subscriptionExpiresAt: v.optional(v.number()), // Unix timestamp when subscription expires
-    scheduledDowngradeId: v.optional(v.id("_scheduled_functions")), // ID of scheduled downgrade job
-    lastEmotionLabel: v.optional(v.string()), // Last detected emotion from user's questions
-    lastEmotionAt: v.optional(v.number()), // Unix timestamp when emotion was last detected
-  }).index("by_messenger_id", ["messengerId"]),
+    // Last message the user sent us. Messenger only allows standard messages within
+    // 24 hours of this, so broadcasts filter on it.
+    lastMessageAt: v.optional(v.number()),
+    lastReadingDate: v.optional(v.number()),
+    readingCount: v.optional(v.number()), // Missing on old rows until their next reading
+    sessionState: v.optional(userSessionStateValidator),
+    // A question asked before we had their birthdate; read as soon as the birthdate arrives.
+    pendingQuestion: v.optional(v.string()),
+    description: v.optional(v.string()), // AI profile blurb shown in "About me"
+    descriptionLastUpdated: v.optional(v.number()),
+    // Legacy: written but never enforced. Kept so old rows still validate.
+    followupSessionsToday: v.optional(v.number()),
+    lastFollowupAt: v.optional(v.number()),
+    scheduledNotificationId: v.optional(v.id("_scheduled_functions")),
+    subscriptionStartAt: v.optional(v.number()),
+    subscriptionExpiresAt: v.optional(v.number()),
+    scheduledDowngradeId: v.optional(v.id("_scheduled_functions")),
+    lastEmotionLabel: v.optional(v.string()),
+    lastEmotionAt: v.optional(v.number()),
+  })
+    .index("by_messenger_id", ["messengerId"])
+    .index("by_last_message", ["lastMessageAt"]),
 
   readings: defineTable({
     userId: v.id("users"),
     messengerId: v.string(),
     question: v.optional(v.string()),
-    cards: v.array(v.object({
-      id: v.string(),
-      name: v.string(),
-      meaning: v.string(),
-      position: v.string(),
-      reversed: v.boolean(),
-      description: v.string(),
-      cardType: v.string(),
-    })),
+    cards: v.array(storedCardValidator),
     interpretation: v.string(),
-    readingType: v.union(v.literal("daily"), v.literal("question"), v.literal("manual")),
+    readingType: readingTypeValidator,
     createdAt: v.number(),
-    sessionState: v.union(v.literal("active"), v.literal("followup_available"), v.literal("followup_in_progress"), v.literal("completed"), v.literal("ended")),
-    subscriptionTier: v.union(v.literal("free"), v.literal("mystic"), v.literal("oracle"), v.literal("pro"), v.literal("pro+")),
-    maxFollowups: v.number(), // 1, 3, or 5
-    followupsUsed: v.number(), // counter of follow-up questions asked
-    conversationHistory: v.optional(v.array(
-      v.object({
-        type: v.union(v.literal("initial_reading"), v.literal("followup_question"), v.literal("followup_response"), v.literal("session_end")),
-        timestamp: v.number(),
-        content: v.string(),
-        questionNumber: v.optional(v.number()),
-        responseTime: v.optional(v.number()),
-        isValidQuestion: v.optional(v.boolean()),
-      })
-    )),
+    sessionState: readingSessionStateValidator,
+    subscriptionTier: userTierValidator,
+    maxFollowups: v.number(),
+    followupsUsed: v.number(),
+    conversationHistory: v.optional(v.array(conversationEntryValidator)),
     lastActivityAt: v.number(),
-    embedding: v.optional(v.array(v.float64())), // Vector embedding for RAG retrieval (dimensions will be set by model)
-    emotionLabel: v.optional(v.string()), // Detected emotion from user's question
-    emotionScores: v.optional(v.object({ // Raw emotion scores from analysis
-      anxious: v.optional(v.number()),
-      sad: v.optional(v.number()),
-      neutral: v.optional(v.number()),
-      hopeful: v.optional(v.number()),
-      angry: v.optional(v.number()),
-      confused: v.optional(v.number()),
-    })),
-  }).index("by_user", ["userId"]).vectorIndex("by_embedding", {
-    vectorField: "embedding",
-    dimensions: 1536, // Adjust based on embedding model used
-  }),
+    // Legacy: embeddings now live in `readingEmbeddings`. `migrations:backfillReadingEmbeddings`
+    // clears this field; drop it from the schema once that has run on prod.
+    embedding: v.optional(v.array(v.float64())),
+    emotionLabel: v.optional(v.string()),
+    emotionScores: v.optional(emotionScoresValidator),
+  }).index("by_user", ["userId"]),
+
+  // Kept apart from `readings` so reading a reading never loads a 1536-float vector.
+  readingEmbeddings: defineTable({
+    readingId: v.id("readings"),
+    userId: v.id("users"),
+    embedding: v.array(v.float64()),
+  })
+    .index("by_reading", ["readingId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: EMBEDDING_DIMENSIONS,
+      filterFields: ["userId"],
+    }),
+
+  // One row per Messenger event we have accepted. Meta retries deliveries, so this is
+  // how a retry is told apart from a new message. Rows older than 7 days are purged.
+  webhookEvents: defineTable({
+    eventKey: v.string(),
+  }).index("by_event_key", ["eventKey"]),
 
   tarotCards: defineTable({
     cardId: v.string(),
@@ -81,6 +96,7 @@ export default defineSchema({
     keywords: v.array(v.string()),
   }).index("by_card_id", ["cardId"]),
 
+  // Messenger attachment ids for each card image, uploaded once and reused.
   tarotCardImages: defineTable({
     cardId: v.string(),
     imageFilename: v.string(),
@@ -88,26 +104,28 @@ export default defineSchema({
     reversedAttachmentId: v.string(),
     createdAt: v.number(),
     lastUsedAt: v.number(),
-  }).index("by_card_id", ["cardId"]).index("by_filename", ["imageFilename"]),
+  })
+    .index("by_card_id", ["cardId"])
+    .index("by_filename", ["imageFilename"]),
 
   payments: defineTable({
     externalId: v.string(),
     invoiceId: v.optional(v.string()),
     messengerId: v.string(),
-    plan: v.union(v.literal("mystic"), v.literal("oracle")),
+    plan: paidPlanValidator,
     amount: v.number(),
     currency: v.string(),
-    status: v.union(v.literal("PENDING"), v.literal("PAID"), v.literal("EXPIRED"), v.literal("FAILED")),
+    status: paymentStatusValidator,
     invoiceUrl: v.optional(v.string()),
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
   }).index("by_external_id", ["externalId"]),
 
   promotionalPeriods: defineTable({
-    startDate: v.number(),           // Unix timestamp
-    endDate: v.number(),             // Unix timestamp
-    targetedUserIds: v.optional(v.array(v.string())),  // Messenger IDs
-    targetedUserTypes: v.optional(v.array(v.string())), // ["free", "mystic", etc.]
+    startDate: v.number(),
+    endDate: v.number(),
+    targetedUserIds: v.optional(v.array(v.string())), // Messenger ids
+    targetedUserTypes: v.optional(v.array(v.string())),
     isActive: v.boolean(),
     createdAt: v.number(),
     deactivatedAt: v.optional(v.number()),

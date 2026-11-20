@@ -1,78 +1,50 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 
-export const getByCardId = query({
-  args: { cardId: v.string() },
+/** Cached attachment ids, in the order asked; null for cards not uploaded yet. */
+export const getAttachmentIds = internalQuery({
+  args: { cards: v.array(v.object({ filename: v.string(), reversed: v.boolean() })) },
   handler: async (ctx, args) => {
-    return await ctx.db
+    return await Promise.all(
+      args.cards.map(async (card) => {
+        const cached = await ctx.db
+          .query("tarotCardImages")
+          .withIndex("by_filename", (q) => q.eq("imageFilename", card.filename))
+          .first();
+        if (!cached) return null;
+        return card.reversed ? cached.reversedAttachmentId : cached.uprightAttachmentId;
+      }),
+    );
+  },
+});
+
+export const getByCardId = internalQuery({
+  args: { cardId: v.string() },
+  handler: async (ctx, args) =>
+    await ctx.db
       .query("tarotCardImages")
       .withIndex("by_card_id", (q) => q.eq("cardId", args.cardId))
-      .first();
-  },
+      .first(),
 });
 
-export const getByFilename = query({
-  args: { imageFilename: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("tarotCardImages")
-      .withIndex("by_filename", (q) => q.eq("imageFilename", args.imageFilename))
-      .first();
-  },
-});
-
-export const createCardImage = mutation({
+/** Upsert by filename, so two readings caching the same card can't leave duplicates. */
+export const saveCardImage = internalMutation({
   args: {
     cardId: v.string(),
     imageFilename: v.string(),
     uprightAttachmentId: v.string(),
     reversedAttachmentId: v.string(),
-    createdAt: v.number(),
-    lastUsedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("tarotCardImages", args);
-  },
-});
-
-export const updateLastUsed = mutation({
-  args: { cardId: v.string() },
-  handler: async (ctx, args) => {
-    const image = await ctx.db
+    const now = Date.now();
+    const existing = await ctx.db
       .query("tarotCardImages")
-      .withIndex("by_card_id", (q) => q.eq("cardId", args.cardId))
+      .withIndex("by_filename", (q) => q.eq("imageFilename", args.imageFilename))
       .first();
-
-    if (image) {
-      await ctx.db.patch(image._id, { lastUsedAt: Date.now() });
+    if (existing) {
+      await ctx.db.patch("tarotCardImages", existing._id, { ...args, lastUsedAt: now });
+      return existing._id;
     }
-  },
-});
-
-export const getAttachmentIdsForCards = query({
-  args: {
-    cards: v.array(v.object({
-      filename: v.string(),
-      reversed: v.boolean(),
-    }))
-  },
-  handler: async (ctx, args) => {
-    const attachmentIds: string[] = [];
-
-    for (const card of args.cards) {
-      const cachedImage = await ctx.db
-        .query("tarotCardImages")
-        .withIndex("by_filename", (q) => q.eq("imageFilename", card.filename))
-        .first();
-
-      if (cachedImage) {
-        const attachmentId = card.reversed ? cachedImage.reversedAttachmentId : cachedImage.uprightAttachmentId;
-        attachmentIds.push(attachmentId);
-      } else {
-        throw new Error(`No cached image found for ${card.filename}. Please run initialization first.`);
-      }
-    }
-
-    return attachmentIds;
+    return await ctx.db.insert("tarotCardImages", { ...args, createdAt: now, lastUsedAt: now });
   },
 });

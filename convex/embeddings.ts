@@ -1,147 +1,138 @@
-import { action, query } from "./_generated/server";
+// Reading memory: each reading is embedded once into `readingEmbeddings`, and a new
+// question pulls the user's related past readings into the prompt.
+//
+// Before Nov 2026 the "similar readings" query ignored the embedding and returned the
+// latest readings, and vectors (3072-d by default) didn't match the 1536-d index.
+// migrations:backfillReadingEmbeddings re-embeds old readings.
+
 import { v } from "convex/values";
-import { GoogleGenAI } from "@google/genai";
-import { api, internal } from "./_generated/api";
+import { internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { embedDocument, embedQuery } from "./ai/gemini";
+import { rateRelatedReadings } from "./ai/jev";
+import { formatManilaDate } from "./lib/time";
 
-/**
- * Compute embeddings for text using Gemini's embedding-001 model.
- * See: https://ai.google.dev/gemini-api/docs/models/gemini#embedding-001
- */
-export const computeReadingEmbedding = action({
-  args: {
-    text: v.string(),
-  },
-  handler: async (_ctx, args): Promise<number[]> => {
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      console.warn("GEMINI_API_KEY not found, returning empty embedding");
-      return [];
-    }
+// Vector search finds candidates; Jev decides which are about the same situation (it
+// separated related from unrelated readings at about 0.85 vs under 0.1 in testing).
+// Without Jev, fall back to a cosine cut-off that has not been calibrated on real data.
+const CANDIDATES = 6;
+const MIN_COSINE_CANDIDATE = 0.3;
+const MIN_COSINE_FALLBACK = 0.5;
+const MIN_RELATED_PROBABILITY = 0.5;
 
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-
-      // Use the gemini-embedding-001 model for high-quality embeddings
-      const result = await ai.models.embedContent({
-        model: "gemini-embedding-001",
-        contents: [{
-          parts: [{ text: args.text }],
-        }],
-      });
-
-      return result.embeddings?.[0]?.values || [];
-    } catch (error) {
-      console.error("Error computing embedding:", error);
-      // Return empty array to gracefully degrade
-      return [];
-    }
-  },
-});
-
-/**
- * Query to retrieve similar readings using vector search.
- * Filters by userId and boosts recent readings.
- * See: https://docs.convex.dev/search/vector-search
- */
-export const retrieveSimilarReadings = query({
-  args: {
-    userId: v.id("users"),
-    vector: v.array(v.float64()),
-    limit: v.optional(v.number()),
-    timeDecay: v.optional(v.number()), // Hours to decay recency weight
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit || 5;
-    const timeDecay = args.timeDecay || 24; // Default 24 hours decay
-
-    try {
-      // For now, implement simple recency-based retrieval
-      // TODO: Replace with proper vector search when API is available
-      const userReadings = await ctx.db
-        .query("readings")
-        .withIndex("by_user", (q) => q.eq("userId", args.userId))
-        .order("desc") // Most recent first
-        .take(limit * 2); // Get more candidates
-
-      if (userReadings.length === 0) {
-        return [];
-      }
-
-      // Apply recency boost (simple implementation)
-      const now = Date.now();
-      const decayMs = timeDecay * 60 * 60 * 1000;
-
-      const boostedResults = userReadings
-        .map((reading) => {
-          const ageMs = now - reading.createdAt;
-          const recencyBoost = Math.exp(-ageMs / decayMs);
-          return {
-            ...reading,
-            _score: recencyBoost, // Simple recency score for now
-            _boostedScore: recencyBoost,
-          };
-        })
-        .sort((a, b) => b._boostedScore - a._boostedScore)
-        .slice(0, limit);
-
-      return boostedResults;
-    } catch (error) {
-      console.error("Error in similar readings retrieval:", error);
-      return [];
-    }
-  },
-});
-
-/**
- * Internal action to compute and store embedding for a reading.
- * Called after interpretation is generated.
- * Uses enhanced embedding that includes question + cards + full interpretation.
- */
-export const storeReadingEmbedding = action({
-  args: {
-    readingId: v.id("readings"),
-    text: v.string(), // Legacy: just interpretation text
-  },
-  handler: async (ctx, args): Promise<void> => {
-    try {
-      // Get the full reading data for comprehensive embedding
-      const reading = await ctx.runQuery(api.readings.getById, { readingId: args.readingId });
-      if (!reading) {
-        console.warn(`Reading ${args.readingId} not found for embedding`);
-        return;
-      }
-
-      // Use enhanced embedding that includes question, cards, and full interpretation
-      const { buildReadingSummaryForEmbedding } = await import("./rag");
-      const embeddingText = buildReadingSummaryForEmbedding({
-        question: reading.question,
-        cards: reading.cards,
-        interpretation: reading.interpretation,
-      });
-
-      const embedding = await ctx.runAction(api.embeddings.computeReadingEmbedding, {
-        text: embeddingText,
-      });
-
-      if (embedding.length > 0) {
-        await ctx.runMutation(internal.readings.updateReadingEmbedding, {
-          readingId: args.readingId,
-          embedding,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to store reading embedding:", error);
-      // Don't throw - embedding is optional for functionality
-    }
-  },
-});
-
-/**
- * Helper function to get embedding dimensions for a model.
- * Currently hardcoded for embedding-001 (1536 dimensions).
- */
-export function getEmbeddingDimensions(): number {
-  // embedding-001 produces 1536-dimensional vectors
-  // See: https://ai.google.dev/gemini-api/docs/models/gemini#embedding-001
-  return 1536;
+export function readingEmbeddingText(reading: {
+  question?: string;
+  cards: Array<{ name: string; reversed: boolean }>;
+  interpretation: string;
+}): string {
+  const cards = reading.cards.map((card) => `${card.name}${card.reversed ? " (Reversed)" : ""}`).join(", ");
+  return `Question: ${reading.question || "General guidance"}\nCards: ${cards}\nInterpretation: ${reading.interpretation}`;
 }
+
+export const hasEmbedding = internalQuery({
+  args: { readingId: v.id("readings") },
+  handler: async (ctx, args) =>
+    (await ctx.db
+      .query("readingEmbeddings")
+      .withIndex("by_reading", (q) => q.eq("readingId", args.readingId))
+      .first()) !== null,
+});
+
+export const saveEmbedding = internalMutation({
+  args: { readingId: v.id("readings"), userId: v.id("users"), embedding: v.array(v.float64()) },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("readingEmbeddings")
+      .withIndex("by_reading", (q) => q.eq("readingId", args.readingId))
+      .first();
+    if (existing) await ctx.db.patch("readingEmbeddings", existing._id, { embedding: args.embedding });
+    else await ctx.db.insert("readingEmbeddings", args);
+
+    // Drop the legacy copy on the reading itself so reads of `readings` stay small.
+    const reading = await ctx.db.get("readings", args.readingId);
+    if (reading?.embedding) await ctx.db.patch("readings", args.readingId, { embedding: undefined });
+  },
+});
+
+/** Scheduled by readings:createReading. Safe to run twice. */
+export const storeReadingEmbedding = internalAction({
+  args: { readingId: v.id("readings") },
+  handler: async (ctx, args) => {
+    const reading = await ctx.runQuery(internal.readings.getById, { readingId: args.readingId });
+    if (!reading) return;
+    try {
+      const embedding = await embedDocument(readingEmbeddingText(reading));
+      await ctx.runMutation(internal.embeddings.saveEmbedding, { readingId: reading._id, userId: reading.userId, embedding });
+    } catch (error) {
+      // Memory is optional; the backfill migration picks up anything missed here.
+      console.warn("Reading embedding failed", error);
+    }
+  },
+});
+
+/**
+ * Past readings related to the question, formatted for the prompt. Returns "" when
+ * there are none or anything fails: memory must never block a reading.
+ */
+export async function buildReadingMemoryContext(ctx: ActionCtx, userId: Id<"users">, question: string, k = 3): Promise<string> {
+  try {
+    const vector = await embedQuery(question);
+    const matches = await ctx.vectorSearch("readingEmbeddings", "by_embedding", {
+      vector,
+      limit: CANDIDATES,
+      filter: (q) => q.eq("userId", userId),
+    });
+    const candidates = matches.filter((match) => match._score >= MIN_COSINE_CANDIDATE);
+    if (candidates.length === 0) return "";
+
+    const rows = await ctx.runQuery(internal.embeddings.readingIdsFor, { embeddingIds: candidates.map((m) => m._id) });
+    const cosineByReading = new Map(
+      rows.map((row) => [row.readingId, candidates.find((m) => m._id === row.embeddingId)?._score ?? 0]),
+    );
+    const readings = await ctx.runQuery(internal.readings.listByIds, { readingIds: rows.map((row) => row.readingId) });
+    const summaries = readings.map((reading) => ({
+      cosine: cosineByReading.get(reading._id) ?? 0,
+      date: formatManilaDate(reading.createdAt),
+      question: reading.question || "General guidance",
+      cards: reading.cards.map((card) => `${card.name}${card.reversed ? " (Reversed)" : ""}`).join(", "),
+      interpretation: reading.interpretation,
+    }));
+
+    const related = await rateRelatedReadings(
+      question,
+      summaries.map(({ date, question, cards }) => ({ date, question, cards })),
+    );
+    const chosen = related
+      ? summaries
+          .map((summary, i) => ({ summary, p: related[i] }))
+          .filter(({ p }) => p >= MIN_RELATED_PROBABILITY)
+          .sort((a, b) => b.p - a.p)
+          .map(({ summary }) => summary)
+      : summaries.filter((summary) => summary.cosine >= MIN_COSINE_FALLBACK);
+
+    return chosen
+      .slice(0, k)
+      .map((reading, index) => {
+        const sentences = reading.interpretation.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 10);
+        let keyThemes = sentences.slice(0, 2).join(" ").trim();
+        if (keyThemes.length > 250) keyThemes = `${keyThemes.substring(0, 250)}...`;
+        return `[Reading ${index + 1}] ${reading.date}
+Question: "${reading.question}"
+Cards: ${reading.cards}
+Key themes: ${keyThemes}`;
+      })
+      .join("\n\n");
+  } catch (error) {
+    console.warn("Reading memory unavailable", error);
+    return "";
+  }
+}
+
+export const readingIdsFor = internalQuery({
+  args: { embeddingIds: v.array(v.id("readingEmbeddings")) },
+  handler: async (ctx, args) => {
+    const rows = await Promise.all(args.embeddingIds.map((id) => ctx.db.get("readingEmbeddings", id)));
+    return rows.filter((row) => row !== null).map((row) => ({ embeddingId: row._id, readingId: row.readingId }));
+  },
+});

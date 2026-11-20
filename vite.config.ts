@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from '@vitejs/plugin-react-swc'
 
@@ -8,25 +7,23 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": `${import.meta.dirname}/src`,
     },
   },
   build: {
     rolldownOptions: {
       output: {
         manualChunks: (id) => {
-          // Vendor chunk for core React and Convex
-          if (id.includes('node_modules/react') ||
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/convex')) {
+          // Core React. Convex stays out so it loads only with the /xendit/success route.
+          if (id.includes('node_modules/react/') ||
+              id.includes('node_modules/react-dom/') ||
+              id.includes('node_modules/scheduler/')) {
             return 'vendor';
           }
 
-          // UI libraries chunk
+          // UI libraries chunk (lucide-react is only on the success page, so it stays there)
           if (id.includes('node_modules/@radix-ui') ||
-              id.includes('node_modules/lucide-react') ||
               id.includes('node_modules/react-icons') ||
-              id.includes('node_modules/@tabler/icons-react') ||
               id.includes('node_modules/class-variance-authority') ||
               id.includes('node_modules/clsx') ||
               id.includes('node_modules/tailwind-merge')) {
@@ -37,12 +34,6 @@ export default defineConfig({
           if (id.includes('node_modules/gsap') ||
               id.includes('node_modules/motion')) {
             return 'animations';
-          }
-
-          // Google AI and image processing
-          if (id.includes('node_modules/@google/genai') ||
-              id.includes('node_modules/jimp')) {
-            return 'ai';
           }
 
           // Routing

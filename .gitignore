@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Env and local Convex deployment state
+.env
+.env.local
+.convex/

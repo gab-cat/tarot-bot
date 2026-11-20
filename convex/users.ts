@@ -1,895 +1,474 @@
-import { mutation, query, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
-import { type Doc } from "./_generated/dataModel";
-import { toBoldFont } from "./constants";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  DEFAULT_PROFILE_DESCRIPTION,
+  FREE_READINGS_PER_DAY,
+  MYSTIC_READINGS_PER_DAY,
+  SUBSCRIPTION_DAYS,
+  TIER_DISPLAY_NAMES,
+  toBoldFont,
+} from "./constants";
+import { DAY_MS, formatManilaDate, startOfDay } from "./lib/time";
+import { fullName } from "./lib/text";
+import { fetchUserProfile, getPageAccessToken } from "./lib/messenger";
+import { generateProfileDescription } from "./ai/gemini";
+import { isUserEligibleForPromo } from "./promotions";
+import { cancelReadingNotification } from "./notifications";
+import { userSessionStateValidator, type UserTier } from "./validators";
 
-export const createOrUpdateUser = mutation({
-  args: {
-    messengerId: v.string(),
-    firstName: v.optional(v.string()),
-    lastName: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
+// Helpers -----------------------------------------------------------------------
 
-    const now = Date.now();
+export async function findUser(ctx: QueryCtx, messengerId: string): Promise<Doc<"users"> | null> {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_messenger_id", (q) => q.eq("messengerId", messengerId))
+    .first();
+}
 
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        firstName: args.firstName,
-        lastName: args.lastName,
-        lastActiveAt: now,
-      });
-      return existing._id;
-    } else {
-      return await ctx.db.insert("users", {
-        messengerId: args.messengerId,
-        firstName: args.firstName,
-        lastName: args.lastName,
-        isSubscribed: true,
-        userType: "free",
-        createdAt: now,
-        lastActiveAt: now,
-        followupSessionsToday: 0,
-      });
-    }
-  },
+async function findOrCreateUser(ctx: MutationCtx, messengerId: string): Promise<Doc<"users">> {
+  const existing = await findUser(ctx, messengerId);
+  if (existing) return existing;
+  const now = Date.now();
+  const id = await ctx.db.insert("users", {
+    messengerId,
+    isSubscribed: true,
+    userType: "free",
+    createdAt: now,
+    lastActiveAt: now,
+    lastMessageAt: now, // users are only ever created while answering their message
+    readingCount: 0,
+  });
+  return (await ctx.db.get("users", id))!;
+}
+
+export function isUnlimited(tier: UserTier): boolean {
+  return tier === "oracle" || tier === "pro+";
+}
+
+export function dailyReadingLimit(tier: UserTier): number {
+  if (isUnlimited(tier)) return Infinity;
+  return tier === "mystic" || tier === "pro" ? MYSTIC_READINGS_PER_DAY : FREE_READINGS_PER_DAY;
+}
+
+/** Readings since the daily reset, reading at most `limit` rows. */
+export async function countReadingsToday(ctx: QueryCtx, userId: Id<"users">, limit: number, now = Date.now()): Promise<number> {
+  const recent = await ctx.db
+    .query("readings")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .order("desc")
+    .take(limit);
+  const since = startOfDay(now);
+  return recent.filter((reading) => reading.createdAt >= since).length;
+}
+
+async function canRead(ctx: QueryCtx, user: Doc<"users"> | null): Promise<boolean> {
+  if (!user) return true;
+  const limit = dailyReadingLimit(user.userType);
+  if (limit === Infinity) return true;
+  if (await isUserEligibleForPromo(ctx, user)) return true;
+  return (await countReadingsToday(ctx, user._id, limit)) < limit;
+}
+
+// Reads -------------------------------------------------------------------------
+
+const STALE_READING_MS = 5 * 60 * 1000;
+
+export const getUserByMessengerId = internalQuery({
+  args: { messengerId: v.string() },
+  handler: async (ctx, args) => await findUser(ctx, args.messengerId),
 });
 
-export const getUserByMessengerId = query({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-  },
+export const canReadToday = internalQuery({
+  args: { messengerId: v.string() },
+  handler: async (ctx, args) => await canRead(ctx, await findUser(ctx, args.messengerId)),
 });
 
-export const getUserById = query({
-  args: {
-    userId: v.id("users"),
-  },
+/**
+ * The user's conversation state. Follow-up state lives on the latest reading, so it
+ * wins when the user has no state of their own (or only "reading_complete").
+ */
+export const getSessionState = internalQuery({
+  args: { messengerId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.userId);
-  },
-});
+    const user = await findUser(ctx, args.messengerId);
+    if (!user) return null;
+    // A reading that crashed or was cut off by a deploy must not lock the user out.
+    if (user.sessionState === "reading_in_progress" && user.lastActiveAt < Date.now() - STALE_READING_MS) return null;
+    if (user.sessionState && user.sessionState !== "reading_complete") return user.sessionState;
 
-export const getAllLimitedUsers = query({
-  handler: async (ctx) => {
-    // Return all users who have limited readings (not oracle/pro+)
-    return await ctx.db
-      .query("users")
-      .filter((q) =>
-        q.and(
-          q.neq(q.field("userType"), "oracle"),
-          q.neq(q.field("userType"), "pro+")
-        )
-      )
-      .collect();
-  },
-});
-
-export const getLastReadings = query({
-  args: {
-    userId: v.id("users"),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit || 5;
-    return await ctx.db
-      .query("readings")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .order("desc")
-      .take(limit);
-  },
-});
-
-export const getTodaysReadingCount = query({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) return 0;
-
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
-
-    const readings = await ctx.db
-      .query("readings")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .filter((q) => q.gte(q.field("createdAt"), startOfDay) && q.lt(q.field("createdAt"), endOfDay))
-      .collect();
-
-    return readings.length;
-  },
-});
-
-export const canReadToday = query({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) return true; // New users can read
-
-    // Oracle/pro+ users have unlimited readings
-    if (user.userType === "oracle" || user.userType === "pro+") return true;
-
-    // Check for active promotional period
-    const promoEligible = await ctx.runQuery(api.promotions.isUserEligibleForPromo, {
-      messengerId: args.messengerId
-    });
-    if (promoEligible) return true;
-
-    // Get recent readings to check timing
-    const today = new Date();
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-
-    // Check limits based on user type
-    if (user.userType === "free") {
-      // For free users, check their last reading
-      const lastReading = await ctx.db
-        .query("readings")
-        .withIndex("by_user", (q) => q.eq("userId", user._id))
-        .order("desc")
-        .take(1);
-
-      // If no readings or last reading wasn't today, they can read
-      return lastReading.length === 0 || lastReading[0].createdAt < startOfDay;
-    } else if (user.userType === "mystic" || user.userType === "pro") {
-      // For mystic/pro users, check their last 5 readings
-      const lastFiveReadings = await ctx.db
-        .query("readings")
-        .withIndex("by_user", (q) => q.eq("userId", user._id))
-        .order("desc")
-        .take(5);
-
-      // Count how many readings were done today
-      const todaysReadings = lastFiveReadings.filter(reading => reading.createdAt >= startOfDay);
-      return todaysReadings.length < 5;
-    }
-
-    // Default to free limits if userType is invalid
-    const lastReading = await ctx.db
+    const latest = await ctx.db
       .query("readings")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .order("desc")
-      .take(1);
-
-    return lastReading.length === 0 || lastReading[0].createdAt < startOfDay;
+      .first();
+    if (latest && (latest.sessionState === "followup_available" || latest.sessionState === "followup_in_progress")) {
+      return latest.sessionState;
+    }
+    return user.sessionState ?? null;
   },
 });
 
-export const markReadingDone = mutation({
-  args: {
-    messengerId: v.string(),
-  },
+// Session state -----------------------------------------------------------------
+
+export const setSessionState = internalMutation({
+  args: { messengerId: v.string(), sessionState: v.optional(userSessionStateValidator) },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) {
-      // Create user if they don't exist
-      await ctx.db.insert("users", {
-        messengerId: args.messengerId,
-        isSubscribed: true,
-        userType: "free",
-        createdAt: Date.now(),
-        lastActiveAt: Date.now(),
-        lastReadingDate: Date.now(),
-        sessionState: "reading_complete", // Set to reading complete state instead of ending immediately
-        followupSessionsToday: 0,
-      });
-    } else {
-      // Update existing user
-      await ctx.db.patch(user._id, {
-        lastReadingDate: Date.now(),
-        lastActiveAt: Date.now(),
-        sessionState: "reading_complete", // Set to reading complete state instead of ending immediately
-      });
-    }
-
-    // Schedule session end after 5 seconds
-    await ctx.scheduler.runAfter(5000, internal.users.endSession, {
-      messengerId: args.messengerId,
-    });
-  },
-});
-
-export const startSession = mutation({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) {
-      return await ctx.db.insert("users", {
-        messengerId: args.messengerId,
-        isSubscribed: true,
-        userType: "free",
-        createdAt: Date.now(),
-        lastActiveAt: Date.now(),
-        sessionState: "waiting_question",
-        followupSessionsToday: 0,
-      });
-    } else {
-      await ctx.db.patch(user._id, {
-        lastActiveAt: Date.now(),
-        sessionState: "waiting_question",
-      });
-      return user._id;
-    }
-  },
-});
-
-export const setReadingInProgress = mutation({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (user) {
-      await ctx.db.patch(user._id, {
-        lastActiveAt: Date.now(),
-        sessionState: "reading_in_progress",
-      });
-    }
-  },
-});
-
-export const getSessionState = query({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    // First check user's session state
-    const userSessionState = user?.sessionState;
-    
-    // If user has an active session state (not followup-related), return it
-    if (userSessionState && userSessionState !== "reading_complete") {
-      return userSessionState;
-    }
-
-    // Check if there's an active followup session in the most recent reading
-    if (user) {
-      const recentReadings = await ctx.db
-        .query("readings")
-        .withIndex("by_user", (q) => q.eq("userId", user._id))
-        .order("desc")
-        .take(1);
-
-      if (recentReadings.length > 0) {
-        const latestReading = recentReadings[0];
-        // If reading has followup state, return it
-        if (latestReading.sessionState === "followup_available" || 
-            latestReading.sessionState === "followup_in_progress") {
-          return latestReading.sessionState;
-        }
-      }
-    }
-
-    return userSessionState || null;
+    const user = await findOrCreateUser(ctx, args.messengerId);
+    await ctx.db.patch("users", user._id, { sessionState: args.sessionState, lastActiveAt: Date.now() });
   },
 });
 
 export const endSession = internalMutation({
-  args: {
-    messengerId: v.string(),
-  },
+  args: { messengerId: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
+    const user = await findUser(ctx, args.messengerId);
     if (user) {
-      await ctx.db.patch(user._id, {
-        sessionState: undefined,
-        lastActiveAt: Date.now(),
-      });
+      await ctx.db.patch("users", user._id, { sessionState: undefined, pendingQuestion: undefined, lastActiveAt: Date.now() });
     }
   },
 });
 
-export const updateUserDescription = mutation({
-  args: {
-    messengerId: v.string(),
-    description: v.string(),
-  },
+/**
+ * Claims the reading: moves waiting_question to reading_in_progress in one
+ * transaction. Returns false if another message already claimed it.
+ */
+export const beginReading = internalMutation({
+  args: { messengerId: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (user) {
-      await ctx.db.patch(user._id, {
-        description: args.description,
-        descriptionLastUpdated: Date.now(),
-      });
-    }
+    const user = await findUser(ctx, args.messengerId);
+    if (!user || user.sessionState !== "waiting_question") return false;
+    await ctx.db.patch("users", user._id, { sessionState: "reading_in_progress", lastActiveAt: Date.now() });
+    return true;
   },
 });
 
-export const updateUserBirthdate = mutation({
-  args: {
-    messengerId: v.string(),
-    birthdate: v.string(),
-  },
+/** Keeps a question asked before the birthdate and asks for the birthdate. */
+export const holdQuestionForBirthdate = internalMutation({
+  args: { messengerId: v.string(), question: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (user) {
-      await ctx.db.patch(user._id, {
-        birthdate: args.birthdate,
-        lastActiveAt: Date.now(),
-      });
-    }
-  },
-});
-
-export const updateFollowupTracking = mutation({
-  args: {
-    messengerId: v.string(),
-    lastFollowupAt: v.optional(v.number()),
-    followupSessionsToday: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (user) {
-      const updates: Partial<Doc<"users">> = { lastActiveAt: Date.now() };
-
-      if (args.lastFollowupAt !== undefined) {
-        updates.lastFollowupAt = args.lastFollowupAt;
-      }
-
-      if (args.followupSessionsToday !== undefined) {
-        updates.followupSessionsToday = (user.followupSessionsToday || 0) + 1;
-      }
-
-      await ctx.db.patch(user._id, updates);
-    }
-  },
-});
-
-export const setWaitingBirthdate = mutation({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (user) {
-      await ctx.db.patch(user._id, {
-        lastActiveAt: Date.now(),
-        sessionState: "waiting_birthdate",
-      });
-    } else {
-      return await ctx.db.insert("users", {
-        messengerId: args.messengerId,
-        isSubscribed: true,
-        userType: "free",
-        createdAt: Date.now(),
-        lastActiveAt: Date.now(),
-        sessionState: "waiting_birthdate",
-        followupSessionsToday: 0,
-      });
-    }
-  },
-});
-
-// Utility function to validate birthdate format
-export function validateBirthdate(birthdate: string): boolean {
-  // Expected format: "Month DD" (e.g., "Oct 15", "Dec 2")
-  const birthdateRegex = /^[A-Za-z]{3} \d{1,2}$/;
-  if (!birthdateRegex.test(birthdate.trim())) {
-    return false;
-  }
-
-  const [monthStr, dayStr] = birthdate.trim().split(' ');
-  const day = parseInt(dayStr, 10);
-
-  // Validate month
-  const validMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  if (!validMonths.includes(monthStr)) {
-    return false;
-  }
-
-  // Validate day (1-31, but we'll do basic validation)
-  return day >= 1 && day <= 31;
-}
-
-export const generateUserProfileMessage = action({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args): Promise<string> => {
-    const user = await ctx.runQuery(api.users.getUserByMessengerId, { messengerId: args.messengerId });
-
-    if (!user) {
-      return `👤 ${toBoldFont("About You")}\n\nI don't have information about you yet. Start a reading to begin your mystical journey! 🔮`;
-    }
-
-    const userName = user.firstName || user.lastName
-      ? [user.firstName, user.lastName].filter(Boolean).join(" ")
-      : "Mystical Seeker";
-
-    // Check if we need to regenerate description (every 15 days)
-    const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    // Get user type display name
-    const userTypeDisplayMap: Record<string, string> = {
-      free: "Free Explorer",
-      mystic: "Mystic Guide",
-      oracle: "Oracle Master",
-      pro: "Mystic Guide", // Backward compatibility
-      "pro+": "Oracle Master" // Backward compatibility
-    };
-    const userTypeDisplay = userTypeDisplayMap[user.userType] || "Free Explorer";
-
-    // Format subscription details for paid users
-    let subscriptionDetails = "";
-    if (user.userType !== "free" && user.subscriptionStartAt && user.subscriptionExpiresAt) {
-      const startDate = new Date(user.subscriptionStartAt).toLocaleDateString();
-      const expiryDate = new Date(user.subscriptionExpiresAt).toLocaleDateString();
-      const daysRemaining = Math.ceil((user.subscriptionExpiresAt - now) / (24 * 60 * 60 * 1000));
-      subscriptionDetails = `\n\n${toBoldFont("Subscription Details:")}\nStarted: ${startDate}\nExpires: ${expiryDate}\nDays remaining: ${daysRemaining}`;
-    }
-
-    // Get last 5 readings
-    const lastReadings = await ctx.runQuery(api.users.getLastReadings, {
-      userId: user._id,
-      limit: 5
-    });
-    const needsNewDescription = !user.description ||
-                               !user.descriptionLastUpdated ||
-                               (now - user.descriptionLastUpdated) > FIFTEEN_DAYS_MS;
-
-    let description = user.description || "";
-
-    // Generate new AI description if needed and there are readings
-    if (needsNewDescription && lastReadings.length > 0) {
-      const { generateUserDescription } = await import("./tarot");
-      description = await generateUserDescription(lastReadings, userName);
-
-      // Save the new description
-      await ctx.runMutation(api.users.updateUserDescription, {
-        messengerId: args.messengerId,
-        description,
-      });
-    } else if (!description) {
-      // Fallback for users without readings or saved description
-      description = "A curious soul beginning their journey into the mystical arts, ready to discover the wisdom the cards hold.";
-    }
-
-    // Create upgrade message only for free users
-    const upgradeMessage = user.userType === "free"
-      ? `\n\n🌟 ${toBoldFont("Upgrade to Mystic Guide")} for 5 daily readings and deeper insights!\n💎 ${toBoldFont("Upgrade to Oracle Master")} for unlimited readings and premium mystical guidance!`
-      : "";
-
-    return `👤 ${toBoldFont(`About ${userName}`)}
-
-${toBoldFont("Spiritual Level:")} ${userTypeDisplay}
-${toBoldFont("Readings Completed:")} ${lastReadings.length}${subscriptionDetails}
-
-${toBoldFont("Your Mystical Essence:")}
-${description}${upgradeMessage}`;
-  },
-});
-
-export const activateSubscription = internalMutation({
-  args: {
-    messengerId: v.string(),
-    newType: v.union(v.literal("mystic"), v.literal("oracle")),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) {
-      console.error(`User not found for messengerId: ${args.messengerId}`);
-      return;
-    }
-
-    // Business logic: Only allow activation if user is currently free
-    // Prevents re-activation while subscription is active
-    if (user.userType !== "free") {
-      console.log(`User ${args.messengerId} is not free tier (${user.userType}), skipping subscription activation`);
-      return;
-    }
-
-    const now = Date.now();
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = now + thirtyDaysMs;
-
-    // Schedule downgrade job
-    const scheduledJobId = await ctx.scheduler.runAt(
-      expiresAt,
-      internal.users.downgradeToFree,
-      { messengerId: args.messengerId }
-    );
-
-    await ctx.db.patch(user._id, {
-      userType: args.newType,
-      isSubscribed: true,
-      lastActiveAt: now,
-      subscriptionStartAt: now,
-      subscriptionExpiresAt: expiresAt,
-      scheduledDowngradeId: scheduledJobId,
-    });
-
-    // Update any active readings to reflect the new subscription tier
-    const activeReadings = await ctx.db
-      .query("readings")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("sessionState"), "active"),
-          q.eq(q.field("sessionState"), "followup_available"),
-          q.eq(q.field("sessionState"), "followup_in_progress")
-        )
-      )
-      .collect();
-
-    for (const reading of activeReadings) {
-      await ctx.runMutation(internal.readings.updateSessionState, {
-        readingId: reading._id,
-        subscriptionTier: args.newType,
-      });
-    }
-
-    // Cancel any scheduled daily reading notifications since oracle users have unlimited readings
-    if (args.newType === "oracle") {
-      await ctx.runMutation(internal.notifications.cancelScheduledNotification, {
-        messengerId: args.messengerId,
-      });
-    }
-  },
-});
-
-export const downgradeToFree = internalMutation({
-  args: {
-    messengerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
-
-    if (!user) {
-      console.error(`User not found for messengerId: ${args.messengerId}`);
-      return;
-    }
-
-    // Clear scheduled downgrade job if it exists
-    if (user.scheduledDowngradeId) {
-      await ctx.scheduler.cancel(user.scheduledDowngradeId);
-    }
-
-    await ctx.db.patch(user._id, {
-      userType: "free",
-      isSubscribed: false,
+    const user = await findOrCreateUser(ctx, args.messengerId);
+    await ctx.db.patch("users", user._id, {
+      pendingQuestion: args.question.slice(0, 2000),
+      sessionState: "waiting_birthdate",
       lastActiveAt: Date.now(),
-      // Clear subscription fields
-      subscriptionStartAt: undefined,
-      subscriptionExpiresAt: undefined,
-      scheduledDowngradeId: undefined,
     });
+  },
+});
 
-    // Update any active readings to free tier
-    const activeReadings = await ctx.db
-      .query("readings")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .filter((q) =>
-        q.or(
-          q.eq(q.field("sessionState"), "active"),
-          q.eq(q.field("sessionState"), "followup_available"),
-          q.eq(q.field("sessionState"), "followup_in_progress")
-        )
-      )
-      .collect();
+/** Saves the birthdate, moves to waiting_question and hands back any held question. */
+export const acceptBirthdate = internalMutation({
+  args: { messengerId: v.string(), birthdate: v.string() },
+  handler: async (ctx, args) => {
+    const user = await findOrCreateUser(ctx, args.messengerId);
+    await ctx.db.patch("users", user._id, {
+      birthdate: args.birthdate,
+      sessionState: "waiting_question",
+      pendingQuestion: undefined,
+      lastActiveAt: Date.now(),
+    });
+    return user.pendingQuestion ?? null;
+  },
+});
 
-    for (const reading of activeReadings) {
-      await ctx.runMutation(internal.readings.updateSessionState, {
-        readingId: reading._id,
-        subscriptionTier: "free",
-      });
+/** After a failed reading: let the user resend the same question. */
+export const reopenQuestion = internalMutation({
+  args: { messengerId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await findUser(ctx, args.messengerId);
+    if (user && user.sessionState === "reading_in_progress") {
+      await ctx.db.patch("users", user._id, { sessionState: "waiting_question" });
     }
   },
 });
 
-/**
- * MIGRATION: Backfill existing paid users with subscription data
- * Sets subscriptionStartAt to now and subscriptionExpiresAt to 30 days from now
- * Schedules downgrade jobs for existing mystic/oracle users
- * Run this once after deploying the subscription refactor
- */
-export const migrateExistingSubscriptions = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    console.log("Starting migration of existing paid subscriptions...");
-
-    // Find all users who are currently mystic or oracle but don't have subscription data
-    const usersToMigrate = await ctx.db
-      .query("users")
-      .filter((q) =>
-        q.and(
-          q.or(q.eq(q.field("userType"), "mystic"), q.eq(q.field("userType"), "oracle")),
-          q.or(
-            q.eq(q.field("subscriptionStartAt"), undefined),
-            q.eq(q.field("subscriptionExpiresAt"), undefined)
-          )
-        )
-      )
-      .collect();
-
-    console.log(`Found ${usersToMigrate.length} users to migrate`);
-
+export const markReadingDone = internalMutation({
+  args: { messengerId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await findOrCreateUser(ctx, args.messengerId);
     const now = Date.now();
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = now + thirtyDaysMs;
-
-    let migratedCount = 0;
-
-    for (const user of usersToMigrate) {
-      try {
-        // Schedule downgrade job
-        const scheduledJobId = await ctx.scheduler.runAt(
-          expiresAt,
-          internal.users.downgradeToFree,
-          { messengerId: user.messengerId }
-        );
-
-        // Update user with subscription data
-        await ctx.db.patch(user._id, {
-          subscriptionStartAt: now,
-          subscriptionExpiresAt: expiresAt,
-          scheduledDowngradeId: scheduledJobId,
-          lastActiveAt: now,
-        });
-
-        console.log(`Migrated user ${user.messengerId} (${user.userType})`);
-        migratedCount++;
-      } catch (error) {
-        console.error(`Failed to migrate user ${user.messengerId}:`, error);
-      }
-    }
-
-    console.log(`Migration completed. Migrated ${migratedCount} users.`);
-    return { migratedCount, totalFound: usersToMigrate.length };
+    await ctx.db.patch("users", user._id, { lastReadingDate: now, lastActiveAt: now, sessionState: "reading_complete" });
+    // Short cool-down so a double tap doesn't start a second reading.
+    await ctx.scheduler.runAfter(5000, internal.users.clearReadingComplete, { messengerId: args.messengerId });
   },
 });
 
-/**
- * INTERNAL: Migrate existing users without names to fetch and save their profile info
- * This function can be run manually or as a background job to backfill user data
- */
-export const migrateUserProfiles = internalAction({
-  args: {
-    batchSize: v.optional(v.number()), // How many users to process at once (default: 10)
-    dryRun: v.optional(v.boolean()), // If true, only log what would be done without making changes
-  },
+/** Only clears "reading_complete", so it can't wipe a session the user started since. */
+export const clearReadingComplete = internalMutation({
+  args: { messengerId: v.string() },
   handler: async (ctx, args) => {
-    const batchSize = args.batchSize || 10;
-    const dryRun = args.dryRun || false;
-
-    console.log(`🔄 Starting user profile migration (batchSize: ${batchSize}, dryRun: ${dryRun})`);
-
-    // Find users without firstName and lastName
-    const usersWithoutNames = await ctx.runQuery(internal.users.getUsersWithoutNames);
-
-    console.log(`📊 Found ${usersWithoutNames.length} users without profile information`);
-
-    if (usersWithoutNames.length === 0) {
-      console.log("✅ No users need migration");
-      return {
-        success: true,
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        message: "No users need migration"
-      };
+    const user = await findUser(ctx, args.messengerId);
+    if (user?.sessionState === "reading_complete") {
+      await ctx.db.patch("users", user._id, { sessionState: undefined });
     }
-
-    let processed = 0;
-    let successful = 0;
-    let failed = 0;
-
-    // Process users in batches
-    const batches = [];
-    for (let i = 0; i < usersWithoutNames.length; i += batchSize) {
-      batches.push(usersWithoutNames.slice(i, i + batchSize));
-    }
-
-    for (const batch of batches) {
-      console.log(`📦 Processing batch of ${batch.length} users...`);
-
-      // Process each user in the batch
-      const batchPromises = batch.map(async (user) => {
-        try {
-          console.log(`🔍 Processing user ${user.messengerId}...`);
-
-          // Try to fetch user profile using the standard approach
-          const userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
-            userId: user.messengerId,
-            accessToken: process.env.ACCESS_TOKEN!,
-          });
-
-          // If standard approach fails, this is likely a phone-registered user
-          // We can't migrate them automatically since we don't have their message_id
-          if (!userProfile) {
-            console.warn(`⚠️ Cannot fetch profile for user ${user.messengerId} (likely phone-registered)`);
-            failed++;
-            return { userId: user._id, success: false, reason: "Cannot fetch profile (phone-registered)" };
-          }
-
-          console.log(`✅ Successfully fetched profile for user ${user.messengerId}:`, {
-            has_first_name: !!userProfile.first_name,
-            has_last_name: !!userProfile.last_name,
-          });
-
-          if (!dryRun) {
-            // Update the user with the fetched profile information
-            await ctx.runMutation(internal.users.updateUserProfile, {
-              messengerId: user.messengerId,
-              firstName: userProfile.first_name,
-              lastName: userProfile.last_name,
-            });
-          }
-
-          successful++;
-          return { userId: user._id, success: true, profile: userProfile };
-        } catch (error) {
-          console.error(`❌ Error processing user ${user.messengerId}:`, error);
-          failed++;
-          return { userId: user._id, success: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      });
-
-      // Wait for all users in this batch to be processed
-      const batchResults = await Promise.all(batchPromises);
-      processed += batchResults.length;
-
-      console.log(`✅ Batch complete: ${batchResults.filter(r => r.success).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
-    }
-
-    const result = {
-      success: true,
-      processed,
-      successful,
-      failed,
-      message: `Migration complete: ${successful}/${processed} users updated successfully`,
-      dryRun
-    };
-
-    console.log(`🎉 Migration complete:`, result);
-    return result;
   },
 });
 
-/**
- * INTERNAL: Query to find users without firstName and lastName
- */
-export const getUsersWithoutNames = internalQuery({
-  handler: async (ctx) => {
-    // Find users where both firstName and lastName are missing/empty
-    const users = await ctx.db
-      .query("users")
-      .filter((q) =>
-        q.and(
-          q.or(q.eq(q.field("firstName"), undefined), q.eq(q.field("firstName"), "")),
-          q.or(q.eq(q.field("lastName"), undefined), q.eq(q.field("lastName"), ""))
-        )
-      )
-      .collect();
+// Profile -----------------------------------------------------------------------
 
-    return users.map(user => ({
-      _id: user._id,
-      messengerId: user.messengerId,
-      createdAt: user._creationTime
-    }));
-  },
-});
-
-/**
- * INTERNAL: Update user profile information
- */
-export const updateUserProfile = internalMutation({
-  args: {
-    messengerId: v.string(),
-    firstName: v.optional(v.string()),
-    lastName: v.optional(v.string()),
-  },
+/** Saves Facebook profile fields. Missing fields never overwrite what we have. */
+export const saveProfile = internalMutation({
+  args: { messengerId: v.string(), firstName: v.optional(v.string()), lastName: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
+    const user = await findOrCreateUser(ctx, args.messengerId);
+    const updates: Partial<Doc<"users">> = { lastActiveAt: Date.now() };
+    if (args.firstName) updates.firstName = args.firstName;
+    if (args.lastName) updates.lastName = args.lastName;
+    await ctx.db.patch("users", user._id, updates);
+    return user._id;
+  },
+});
 
-    if (!user) {
-      throw new Error(`User not found: ${args.messengerId}`);
-    }
+export const saveBirthdate = internalMutation({
+  args: { messengerId: v.string(), birthdate: v.string() },
+  handler: async (ctx, args) => {
+    const user = await findOrCreateUser(ctx, args.messengerId);
+    await ctx.db.patch("users", user._id, { birthdate: args.birthdate, lastActiveAt: Date.now() });
+  },
+});
 
-    const updates: Partial<Doc<"users">> = {};
-    if (args.firstName !== undefined) {
-      updates.firstName = args.firstName;
-    }
-    if (args.lastName !== undefined) {
-      updates.lastName = args.lastName;
-    }
-
-    await ctx.db.patch(user._id, updates);
-
-    console.log(`✅ Updated profile for user ${args.messengerId}:`, updates);
+export const saveDescription = internalMutation({
+  args: { userId: v.id("users"), description: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch("users", args.userId, { description: args.description, descriptionLastUpdated: Date.now() });
   },
 });
 
 export const updateLastEmotion = internalMutation({
-  args: {
-    messengerId: v.string(),
-    emotionLabel: v.string(),
-    emotionAt: v.number(),
-  },
+  args: { messengerId: v.string(), emotionLabel: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_messenger_id", (q) => q.eq("messengerId", args.messengerId))
-      .first();
+    const user = await findUser(ctx, args.messengerId);
+    if (user) await ctx.db.patch("users", user._id, { lastEmotionLabel: args.emotionLabel, lastEmotionAt: Date.now() });
+  },
+});
 
-    if (!user) {
-      throw new Error("User not found");
+/** Old rows have no readingCount. Counts once and stores it. */
+export const ensureReadingCount = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get("users", args.userId);
+    if (!user) return 0;
+    if (user.readingCount !== undefined) return user.readingCount;
+    const readings = await ctx.db
+      .query("readings")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+    await ctx.db.patch("users", args.userId, { readingCount: readings.length });
+    return readings.length;
+  },
+});
+
+const DESCRIPTION_MAX_AGE_MS = 15 * DAY_MS;
+
+/** The "About me" message. */
+export async function buildProfileMessage(ctx: ActionCtx, messengerId: string): Promise<string> {
+  const user = await ctx.runQuery(internal.users.getUserByMessengerId, { messengerId });
+  if (!user) {
+    return `👤 ${toBoldFont("About You")}\n\nI don't have information about you yet. Start a reading to begin your mystical journey! 🔮`;
+  }
+
+  const userName = fullName(user) ?? "Mystical Seeker";
+  const now = Date.now();
+  const readingCount = user.readingCount ?? (await ctx.runMutation(internal.users.ensureReadingCount, { userId: user._id }));
+
+  let subscriptionDetails = "";
+  if (user.userType !== "free" && user.subscriptionStartAt && user.subscriptionExpiresAt) {
+    const daysRemaining = Math.max(0, Math.ceil((user.subscriptionExpiresAt - now) / DAY_MS));
+    subscriptionDetails = `\n\n${toBoldFont("Subscription Details:")}\nStarted: ${formatManilaDate(user.subscriptionStartAt)}\nExpires: ${formatManilaDate(user.subscriptionExpiresAt)}\nDays remaining: ${daysRemaining}`;
+  }
+
+  let description = user.description ?? "";
+  const isStale = !user.descriptionLastUpdated || now - user.descriptionLastUpdated > DESCRIPTION_MAX_AGE_MS;
+  if ((!description || isStale) && readingCount > 0) {
+    const recent = await ctx.runQuery(internal.readings.listRecentForUser, { userId: user._id, limit: 5 });
+    try {
+      description = await generateProfileDescription({ userName: fullName(user), readings: recent });
+      await ctx.runMutation(internal.users.saveDescription, { userId: user._id, description });
+    } catch (error) {
+      console.warn("Profile description failed; keeping the old one", error);
     }
+  }
+  if (!description) description = DEFAULT_PROFILE_DESCRIPTION;
 
-    await ctx.db.patch(user._id, {
-      lastEmotionLabel: args.emotionLabel,
-      lastEmotionAt: args.emotionAt,
+  const upgradeMessage =
+    user.userType === "free"
+      ? `\n\n🌟 ${toBoldFont("Upgrade to Mystic Guide")} for 5 daily readings and deeper insights!\n💎 ${toBoldFont("Upgrade to Oracle Master")} for unlimited readings and premium mystical guidance!`
+      : "";
+
+  return `👤 ${toBoldFont(`About ${userName}`)}
+
+${toBoldFont("Spiritual Level:")} ${TIER_DISPLAY_NAMES[user.userType] ?? "Free Explorer"}
+${toBoldFont("Readings Completed:")} ${readingCount}${subscriptionDetails}
+
+${toBoldFont("Your Mystical Essence:")}
+${description}${upgradeMessage}`;
+}
+
+// Subscriptions -----------------------------------------------------------------
+
+/**
+ * Upgrades a free user for 30 days and schedules the downgrade. Returns false and
+ * changes nothing if the user is missing or already on a paid tier.
+ */
+export async function activateSubscription(ctx: MutationCtx, messengerId: string, plan: "mystic" | "oracle"): Promise<boolean> {
+  const user = await findUser(ctx, messengerId);
+  if (!user) {
+    console.error("activateSubscription: user not found");
+    return false;
+  }
+  if (user.userType !== "free") {
+    console.error(`activateSubscription: user is already ${user.userType}; payment needs a manual decision`);
+    return false;
+  }
+
+  const now = Date.now();
+  const expiresAt = now + SUBSCRIPTION_DAYS * DAY_MS;
+  const scheduledDowngradeId = await ctx.scheduler.runAt(expiresAt, internal.users.downgradeToFree, { messengerId });
+  await ctx.db.patch("users", user._id, {
+    userType: plan,
+    isSubscribed: true,
+    lastActiveAt: now,
+    subscriptionStartAt: now,
+    subscriptionExpiresAt: expiresAt,
+    scheduledDowngradeId,
+  });
+  await setTierOnOpenReadings(ctx, user._id, plan);
+  if (plan === "oracle") await cancelReadingNotification(ctx, user);
+  return true;
+}
+
+async function setTierOnOpenReadings(ctx: MutationCtx, userId: Id<"users">, tier: UserTier): Promise<void> {
+  const recent = await ctx.db
+    .query("readings")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .order("desc")
+    .take(5);
+  for (const reading of recent) {
+    if (
+      reading.sessionState === "active" ||
+      reading.sessionState === "followup_available" ||
+      reading.sessionState === "followup_in_progress"
+    ) {
+      await ctx.db.patch("readings", reading._id, { subscriptionTier: tier });
+    }
+  }
+}
+
+/**
+ * Runs from the scheduler when a subscription expires. It must not cancel
+ * scheduledDowngradeId: that is this job, and since Convex 1.50 a scheduled
+ * mutation cancelling itself throws and rolls back.
+ */
+export const downgradeToFree = internalMutation({
+  args: { messengerId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await findUser(ctx, args.messengerId);
+    if (!user) return;
+    if (user.subscriptionExpiresAt && user.subscriptionExpiresAt > Date.now() + 60_000) {
+      // A later subscription replaced the one this job was scheduled for.
+      return;
+    }
+    await ctx.db.patch("users", user._id, {
+      userType: "free",
+      isSubscribed: false,
+      lastActiveAt: Date.now(),
+      subscriptionStartAt: undefined,
+      subscriptionExpiresAt: undefined,
+      scheduledDowngradeId: undefined,
     });
+    await setTierOnOpenReadings(ctx, user._id, "free");
+  },
+});
+
+// One-off migrations (run with `npx convex run`) ---------------------------------
+
+/**
+ * Backfills subscription dates for paid users from before subscriptions expired.
+ * Idempotent: only touches paid users with no subscription dates.
+ */
+export const migrateExistingSubscriptions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const paid = [
+      ...(await ctx.db
+        .query("users")
+        .filter((q) => q.eq(q.field("userType"), "mystic"))
+        .collect()),
+      ...(await ctx.db
+        .query("users")
+        .filter((q) => q.eq(q.field("userType"), "oracle"))
+        .collect()),
+    ].filter((user) => user.subscriptionStartAt === undefined || user.subscriptionExpiresAt === undefined);
+
+    const now = Date.now();
+    const expiresAt = now + SUBSCRIPTION_DAYS * DAY_MS;
+    for (const user of paid) {
+      const scheduledDowngradeId = await ctx.scheduler.runAt(expiresAt, internal.users.downgradeToFree, {
+        messengerId: user.messengerId,
+      });
+      await ctx.db.patch("users", user._id, {
+        subscriptionStartAt: now,
+        subscriptionExpiresAt: expiresAt,
+        scheduledDowngradeId,
+        lastActiveAt: now,
+      });
+    }
+    return { migratedCount: paid.length };
+  },
+});
+
+/** Users with no name stored, for `migrateUserProfiles`. */
+export const listUsersWithoutNames = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect();
+    return users.filter((user) => !user.firstName && !user.lastName).map((user) => ({ messengerId: user.messengerId }));
+  },
+});
+
+/**
+ * Tries to fill in names for users who have none. See docs/MIGRATION_GUIDE.md.
+ * `npx convex run users:migrateUserProfiles '{"dryRun": true}'`
+ */
+export const migrateUserProfiles = internalAction({
+  args: { batchSize: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<{ processed: number; successful: number; failed: number; dryRun: boolean }> => {
+    const accessToken = getPageAccessToken();
+    if (!accessToken) throw new Error("ACCESS_TOKEN is not set");
+
+    const batchSize = args.batchSize ?? 10;
+    const dryRun = args.dryRun ?? false;
+    const users: Array<{ messengerId: string }> = await ctx.runQuery(internal.users.listUsersWithoutNames, {});
+    let successful = 0;
+    let failed = 0;
+
+    for (let i = 0; i < users.length; i += batchSize) {
+      await Promise.all(
+        users.slice(i, i + batchSize).map(async (user) => {
+          const profile = await fetchUserProfile(user.messengerId, accessToken);
+          if (!profile?.first_name && !profile?.last_name) {
+            failed++;
+            return;
+          }
+          if (!dryRun) {
+            await ctx.runMutation(internal.users.saveProfile, {
+              messengerId: user.messengerId,
+              firstName: profile.first_name,
+              lastName: profile.last_name,
+            });
+          }
+          successful++;
+        }),
+      );
+    }
+    return { processed: users.length, successful, failed, dryRun };
   },
 });
