@@ -32,37 +32,14 @@ When you query a message object, Facebook includes a `from` field with the sende
 
 ### Implementation
 
-**File: `convex/facebookApi.ts`**
+**Where it lives now (Nov 2026):** `fetchUserProfile` and `fetchSenderViaMessage` in
+`convex/lib/messenger.ts`, called from `lookUpName` in `convex/messenger.ts`. The bot only
+looks a name up when it has none stored, and a failed lookup never erases a saved name.
 
 ```typescript
-export const getUserProfileViaMessage = action({
-  args: {
-    messageId: v.string(), // Facebook message ID (mid)
-    accessToken: v.string(),
-  },
-  handler: async (_, args): Promise<FacebookUserProfile | null> => {
-    // Queries the message object instead of user profile
-    const url = `https://graph.facebook.com/v23.0/${args.messageId}?fields=from&...`;
-    // ... returns from.name, from.first_name, from.last_name if available
-  },
-});
-```
-
-**File: `convex/http.ts`**
-
-```typescript
-// First, try the standard approach
-userProfile = await ctx.runAction(api.facebookApi.getUserProfile, {
-  userId: senderId,
-  accessToken,
-});
-
-// If that fails, try the message_id workaround
-if (!userProfile && messageId) {
-  userProfile = await ctx.runAction(api.facebookApi.getUserProfileViaMessage, {
-    messageId,
-    accessToken,
-  });
+// convex/messenger.ts
+async function lookUpName(senderId: string, messageId: string | undefined, accessToken: string) {
+  return (await fetchUserProfile(senderId, accessToken)) ?? (messageId ? await fetchSenderViaMessage(messageId, accessToken) : null);
 }
 ```
 
@@ -141,7 +118,7 @@ sessionState: v.union(
 ),
 ```
 
-#### 2. Add Mutation to Handle Name Collection (`convex/users.ts`)
+#### 2. Add Mutation to Handle Name Collection (`convex/users.ts`) (proposal, not built)
 
 ```typescript
 export const setWaitingName = mutation({
@@ -191,7 +168,7 @@ export const saveUserName = mutation({
 });
 ```
 
-#### 3. Update Webhook Handler (`convex/http.ts`)
+#### 3. Update the conversation handler (`convex/messenger.ts`) (proposal, not built)
 
 When user profile cannot be fetched from Facebook:
 
