@@ -38,6 +38,21 @@ export const findFallbackReadings = internalQuery({
   },
 });
 
+/** Deletes the given reading-memory rows (at most 500 per call). */
+export const deleteReadingEmbeddings = internalMutation({
+  args: { ids: v.array(v.id("readingEmbeddings")) },
+  handler: async (ctx, args) => {
+    let deleted = 0;
+    for (const id of args.ids.slice(0, 500)) {
+      if (await ctx.db.get("readingEmbeddings", id)) {
+        await ctx.db.delete("readingEmbeddings", id);
+        deleted++;
+      }
+    }
+    return deleted;
+  },
+});
+
 export const replaceInterpretation = internalMutation({
   args: { readingId: v.id("readings"), interpretation: v.string() },
   handler: async (ctx, args) => {

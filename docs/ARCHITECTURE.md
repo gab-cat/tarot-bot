@@ -102,7 +102,8 @@ Each reading is embedded once into `readingEmbeddings` (kept out of `readings` s
 a reading never loads a vector). A new question is embedded and matched against that
 user's rows with `ctx.vectorSearch(..., filter: userId)`. Up to 6 candidates go to Jev,
 which keeps those about the same situation, person or goal. Before Nov 2026 the "semantic" lookup ignored the embedding and returned
-the latest readings, so `migrations:backfillReadingEmbeddings` is needed once on prod.
+the latest readings. Older readings were not re-embedded, so memory covers readings made
+from Nov 21, 2026 on.
 
 ## Money
 

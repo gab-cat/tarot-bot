@@ -69,14 +69,14 @@ of thinking Gab expects on every task, big or small.
 - **Read the real code paths**: for any message-driven change, `handleEvent` in `convex/messenger.ts` top to bottom (the order of the checks is behaviour), then the internal functions it calls in `convex/users.ts`, `convex/readings.ts`, `convex/followups.ts`, `convex/payments.ts`. Whole functions, not grep hits.
 - **Business rules live in `convex/constants.ts`**: `PRICES_PHP`, `FOLLOWUP_LIMITS`, `MYSTIC_READINGS_PER_DAY`, `SUBSCRIPTION_DAYS`, plus every message the bot sends. Prices, limits and anything the copy promises are Gab's to change.
 - **Find the existing pattern** before inventing one: `sendText` for every outgoing message, `findUser` for user lookups, `toBoldFont` and `formatForMessenger` for emphasis, the validators in `convex/validators.ts`, the Gemini functions in `convex/ai/gemini.ts`. A second way of doing the same thing is a cost.
-- **Map the blast radius**: a change to the user or reading shape touches the webhook flow, the scheduled jobs (notifications, follow-up end, downgrade, promos), the migrations and the success page's one public query.
+- **Map the blast radius**: a change to the user or reading shape touches the webhook flow, the scheduled jobs (notifications, follow-up end, downgrade, promos), the repair functions in `convex/admin.ts` and the success page's one public query.
 - **Research when unsure**: Convex docs (docs.convex.dev, and the changelog for behaviour changes; 1.50 made self-cancelling scheduled mutations throw), the Gemini docs (aistudio.google.com/docs, especially deprecations and pricing), the Messenger Platform docs and Graph API changelog, Xendit's invoice docs. Say in your report what you learned and why you chose it.
 
 ## 3. Build end to end
 
 A change is done when a real person can use it in Messenger start to finish and recover from every failure:
 
-- **Data**: validators from `convex/validators.ts`, an index for every query path, widen → migrate → narrow, and a batched, resumable, dry-runnable migration in `convex/migrations.ts` for rows that already exist.
+- **Data**: validators from `convex/validators.ts`, an index for every query path, widen → migrate → narrow, and for rows that already exist a batched, resumable, dry-runnable migration that Gab has said yes to.
 - **Server**: new functions are `internal*`. Identity is the webhook sender id, never an argument from a client. Anything that spends money or tokens is idempotent (claim first, like `users:beginReading`, `followups:reserveQuestion`, `payments:markPaid`). The webhook only schedules.
 - **Conversation**: every state in [ui.md](ui.md#every-state-of-the-conversation), a reply for every input in every state, failures that tell the person what happened and give back what they didn't get.
 - **Copy**: in `convex/constants.ts`, in the bot's existing voice, quick reply titles within 20 characters.

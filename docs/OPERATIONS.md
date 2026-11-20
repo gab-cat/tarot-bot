@@ -43,11 +43,10 @@ npx convex run facebookApi:setupWelcomeScreen
 # Upload all 78 card images to Messenger and cache the attachment ids
 npx convex run imageActions:initializeCardImages
 
-# Embed every reading into readingEmbeddings. Only adds rows; the legacy
-# readings.embedding field is left alone. About $1 per 10,000 readings.
-# Batched, resumable, safe to run twice.
-npx convex run migrations:backfillReadingEmbeddings '{"dryRun": true}'
-npx convex run migrations:backfillReadingEmbeddings '{}'
+# Readings that got the old canned fallback text, and a real redo for one of them
+# (send: false returns the text without saving or sending; never sends outside 24 hours)
+npx convex run admin:findFallbackReadings
+npx convex run admin:redoReading '{"readingId": "<id>", "send": false}'
 
 # Fill in names for users who have none (fails for phone-only Facebook accounts,
 # see FACEBOOK_API_PERMISSIONS.md)

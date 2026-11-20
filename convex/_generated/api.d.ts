@@ -27,7 +27,6 @@ import type * as lib_text from "../lib/text.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_webhook from "../lib/webhook.js";
 import type * as messenger from "../messenger.js";
-import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as promotions from "../promotions.js";
@@ -64,7 +63,6 @@ declare const fullApi: ApiFromModules<{
   "lib/time": typeof lib_time;
   "lib/webhook": typeof lib_webhook;
   messenger: typeof messenger;
-  migrations: typeof migrations;
   notifications: typeof notifications;
   payments: typeof payments;
   promotions: typeof promotions;

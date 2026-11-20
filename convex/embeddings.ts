@@ -2,8 +2,8 @@
 // question pulls the user's related past readings into the prompt.
 //
 // Before Nov 2026 the "similar readings" query ignored the embedding and returned the
-// latest readings, and vectors (3072-d by default) didn't match the 1536-d index.
-// migrations:backfillReadingEmbeddings re-embeds old readings.
+// latest readings. Readings from before then were deliberately not re-embedded (Gab's
+// call), so memory covers readings made from Nov 21, 2026 on.
 
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
@@ -61,7 +61,7 @@ export const storeReadingEmbedding = internalAction({
       const embedding = await embedDocument(readingEmbeddingText(reading));
       await ctx.runMutation(internal.embeddings.saveEmbedding, { readingId: reading._id, userId: reading.userId, embedding });
     } catch (error) {
-      // Memory is optional; the backfill migration picks up anything missed here.
+      // Memory is optional: a reading without an embedding just isn't recalled later.
       console.warn("Reading embedding failed", error);
     }
   },

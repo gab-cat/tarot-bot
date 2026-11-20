@@ -77,7 +77,8 @@ never loaded with a reading.
 ## Schema and migrations
 
 - Widen → migrate → narrow. Legacy fields still in the schema: `readings.embedding` (unused since Nov 2026; clearing it deletes data, so it's Gab's call) and `users.followupSessionsToday`.
-- Migrations go in `convex/migrations.ts`: paginated, self-scheduling, idempotent, with `dryRun`. Show Gab the dry-run numbers before prod.
+- A data migration is an internal action that pages through the table, schedules itself for the next page, is idempotent and has a `dryRun`. Put it in a `migrations.ts` module in `convex/`, show Gab the dry-run numbers, and get a yes before prod: in Nov 2026 Gab chose not to re-embed old readings, so "it's cheap" is not a reason on its own.
+- One-off repairs live in `convex/admin.ts` (`admin:findFallbackReadings`, `admin:redoReading`, `admin:deleteReadingEmbeddings`).
 
 ## Security
 
